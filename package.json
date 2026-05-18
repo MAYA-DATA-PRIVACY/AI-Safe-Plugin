@@ -29,7 +29,7 @@
     "dev": "echo 'Load the extension/ folder in Chrome via chrome://extensions (Developer mode)'"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
+    "@playwright/test": "^1.60.0",
     "eslint": "^10.1.0",
     "prettier": "^3.0.3"
   },
