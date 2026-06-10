@@ -538,3 +538,213 @@ test.describe('Anchored Overlay Scroll Refresh', () => {
         await page.close();
     });
 });
+
+test.describe('Field Status Badge', () => {
+    let mockServer;
+    let offlineServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: {
+                [CONTENT_PAGE_PATH]: TEST_PAGE_HTML,
+                [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML,
+            },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try {
+                        payload = JSON.parse(body || '{}');
+                    } catch {
+                        payload = {};
+                    }
+                    const text = String(payload.text || '');
+                    return {
+                        headers: cors,
+                        body: {
+                            ok: true,
+                            detections: buildMockDetectionsForText(text),
+                        },
+                    };
+                },
+            },
+        });
+        offlineServer = await startMockServer({
+            port: OFFLINE_SERVER_PORT,
+            healthy: false,
+            loaded: false,
+            detections: [],
+            pages: {
+                [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML,
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+        if (offlineServer) await stopMockServer(offlineServer);
+        offlineServer = null;
+    });
+
+    test('badge shows count after detection', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for detection and badge to appear with count
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        // Badge count should be visible (non-empty)
+        const countText = await page.locator('.ps-field-badge.ps-badge-pending .ps-badge-count').textContent();
+        expect(Number.parseInt(countText, 10) || countText).toBeTruthy();
+
+        await page.close();
+    });
+
+    test('click on badge opens field panel', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for badge with pending state
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+
+        // Click badge to open panel
+        await badge.click();
+        await expect(page.locator('.ps-field-panel.ps-panel-visible')).toBeVisible({ timeout: 3000 });
+
+        // Panel should contain "Veil ·" header
+        await expect(page.locator('.ps-panel-title')).toContainText('Veil ·');
+
+        await page.close();
+    });
+
+    test('Redact all from panel redacts items and turns badge green', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for badge
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+
+        // Open panel
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+
+        // Click Redact all
+        const redactAllBtn = panel.locator('.ps-panel-btn-redact');
+        await expect(redactAllBtn).toBeVisible();
+        await redactAllBtn.click();
+
+        // Badge should turn green (protected)
+        await expect(page.locator('.ps-field-badge.ps-badge-protected')).toBeVisible({ timeout: 5000 });
+
+        await page.close();
+    });
+
+    test('badge persists on blur while pending', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        // Disable auto-redact so items stay pending after detection
+        await withExtensionPage(context, extensionId, (page) => page.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({ autoRedact: false }, resolve)),
+        ));
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for pending badge
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        // Explicitly blur the textarea — pending badge should remain visible
+        await textarea.evaluate((el) => el.blur());
+        await page.waitForTimeout(3000);
+
+        // Badge should still be visible because it is pending (safety signal)
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible();
+
+        await page.close();
+    });
+
+    test('badge hides on blur when idle (no detections)', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        // Wait for badge to appear in idle state (visible on focus, no detections yet)
+        await expect(page.locator('.ps-field-badge')).toBeVisible({ timeout: 3000 });
+
+        // Explicitly blur the textarea
+        await textarea.evaluate((el) => el.blur());
+        // Badge should fade out within ~4 s (2 s blur delay + transition)
+        await expect(page.locator('.ps-field-badge.ps-badge-visible')).toBeHidden({ timeout: 6000 });
+
+        await page.close();
+    });
+
+    test('badge clips inside the internal-scroll hostile-editor fixture', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, OFFLINE_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(OFFLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('Email: jane@example.com');
+
+        // Badge should appear
+        await expect(page.locator('.ps-field-badge')).toBeVisible({ timeout: 8000 });
+
+        // Badge should be within the scroll host bounds (clipped)
+        const badgeBounds = await page.locator('.ps-field-badge').boundingBox();
+        const hostBounds = await page.locator('#scrollHost').boundingBox();
+        expect(badgeBounds).not.toBeNull();
+        expect(hostBounds).not.toBeNull();
+        // Badge top/left must be within host rect (clamped by clip rect)
+        expect(badgeBounds.x + badgeBounds.width).toBeLessThanOrEqual(hostBounds.x + hostBounds.width + 4);
+        expect(badgeBounds.y + badgeBounds.height).toBeLessThanOrEqual(hostBounds.y + hostBounds.height + 4);
+
+        await page.close();
+    });
+});

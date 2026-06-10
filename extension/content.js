@@ -140,8 +140,10 @@ class VeilContentController {
     this.postInteractionTimers = new Map();
     this.suppressedInput = new WeakSet();
     this.tokenTrays = new Map();
-    this.scanningPills = new Map();
-    this.actionBars = new Map();
+    this.fieldBadges = new Map();
+    this.fieldPanels = new Map();
+    this.badgeBlurTimers = new Map();
+    this.focusedElements = new Set();
     this.autoRedactTimers = new Map();
     this.dismissedDetections = new WeakMap(); // element → Set of "start:end:label"
     this.maskModeHintChecked = false;
@@ -521,11 +523,11 @@ class VeilContentController {
     window.addEventListener('scroll', this.handleViewportChange, true);
     window.addEventListener('resize', this.handleViewportChange);
 
-    // Hide scanning pills when the tab goes to the background so they don't
+    // Hide field badges when the tab goes to the background so they don't
     // linger and appear stale when switching back.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
-        this.monitoredElements.forEach((_, el) => this.hideScanningPill(el));
+        this.monitoredElements.forEach((_, el) => this.hideFieldBadge(el));
       }
     });
 
@@ -573,9 +575,8 @@ class VeilContentController {
   }
 
   refreshAnchoredUi() {
-    this.repositionActionBars();
+    this.repositionFieldBadges();
     this.repositionTokenTrays();
-    this.repositionScanningPills();
     this._refreshAllOverlays();
     this.refreshRevealOverlayPosition();
     this.cleanupOrphanedUIElements();
@@ -754,24 +755,24 @@ class VeilContentController {
       }
     });
 
-    // Remove orphaned action bars, scanning pills, token trays
-    // (These are tracked in WeakMaps/Maps but may leak if element is GC'd)
-    this.actionBars.forEach?.((bar, element) => {
+    // Remove orphaned field badges, panels, token trays
+    // (These are tracked in Maps but may leak if element is GC'd)
+    this.fieldBadges.forEach((badge, element) => {
       if (!element?.isConnected) {
-        bar.remove();
-        this.actionBars.delete(element);
+        badge.remove();
+        this.fieldBadges.delete(element);
+      }
+    });
+    this.fieldPanels.forEach((panel, element) => {
+      if (!element?.isConnected) {
+        panel.remove();
+        this.fieldPanels.delete(element);
       }
     });
     this.tokenTrays.forEach((tray, element) => {
       if (!element?.isConnected) {
         tray.remove();
         this.tokenTrays.delete(element);
-      }
-    });
-    this.scanningPills.forEach((pill, element) => {
-      if (!element?.isConnected) {
-        pill.remove();
-        this.scanningPills.delete(element);
       }
     });
     // Remove fixed-position overlay highlights whose source element is gone.
@@ -790,6 +791,7 @@ class VeilContentController {
       this.cancelPostInteractionCleanup(element);
       element.removeEventListener('input', listeners.handleInput);
       element.removeEventListener('paste', listeners.handlePaste);
+      element.removeEventListener('focus', listeners.handleFocus);
       element.removeEventListener('blur', listeners.handleBlur);
       element.removeEventListener('keydown', listeners.handleKeydown);
       element.removeEventListener('compositionstart', listeners.handleCompositionStart);
@@ -872,9 +874,23 @@ class VeilContentController {
     };
     const handleInput = () => bumpAndSchedule('typing');
     const handlePaste = () => bumpAndSchedule('paste');
+    const handleFocus = () => {
+      this.focusedElements.add(element);
+      // Cancel any pending blur-hide timer since field is focused again
+      const blurTimer = this.badgeBlurTimers.get(element);
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        this.badgeBlurTimers.delete(element);
+      }
+      this.showFieldBadge(element);
+      const st = this.redactions.get(element);
+      this.updateFieldBadge(element, st);
+    };
     const handleBlur = () => {
+      this.focusedElements.delete(element);
       this.scheduleDetection(element, 'blur');
       this.schedulePostInteractionCleanup(element);
+      this.scheduleFieldBadgeBlurHide(element);
     };
     const handleCompositionStart = () => { element.dataset.psComposing = '1'; };
     const handleCompositionEnd = () => {
@@ -902,9 +918,9 @@ class VeilContentController {
         // Immediately clear all visual artifacts so nothing lingers after send
         this.clearHighlights(element);
         this._clearElementOverlay(element); // removes fixed-position ps-overlay-hl divs instantly
-        this.removeActionBar(element);
+        this.hideFieldPanel(element);
         this.removeTokenTray(element);
-        this.hideScanningPill(element);
+        this.hideFieldBadge(element);
         this.hidePopover();
         this.schedulePostInteractionCleanup(element);
       }
@@ -912,6 +928,7 @@ class VeilContentController {
 
     element.addEventListener('input', handleInput);
     element.addEventListener('paste', handlePaste);
+    element.addEventListener('focus', handleFocus);
     element.addEventListener('blur', handleBlur);
     element.addEventListener('keydown', handleKeydown);
     element.addEventListener('compositionstart', handleCompositionStart);
@@ -933,9 +950,9 @@ class VeilContentController {
         // linger when the user sends via a submit button rather than keyboard.
         this.clearHighlights(element);
         this._clearElementOverlay(element);
-        this.removeActionBar(element);
+        this.hideFieldPanel(element);
         this.removeTokenTray(element);
-        this.hideScanningPill(element);
+        this.hideFieldBadge(element);
         this.hidePopover();
         this.schedulePostInteractionCleanup(element);
       };
@@ -953,6 +970,7 @@ class VeilContentController {
     this.monitoredElements.set(element, {
       handleInput,
       handlePaste,
+      handleFocus,
       handleBlur,
       handleKeydown,
       handleCompositionStart,
@@ -1022,97 +1040,569 @@ class VeilContentController {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // Scanning Indicator (floating logo)
+  // Field Status Badge
   // ═══════════════════════════════════════════════════════════
 
-  showScanningPill(element) {
-    let pill = this.scanningPills.get(element);
-    if (!pill) {
-      pill = document.createElement('div');
-      pill.className = 'ps-scanning-pill';
-      pill.innerHTML = `
-        <span class="ps-scan-dot" aria-hidden="true"></span>
-        <div class="ps-scan-copy">
-          <div class="ps-scan-title">Veil</div>
-          <div class="ps-scan-sub">Scanning...</div>
-        </div>
-      `;
-      document.body.appendChild(pill);
-      this.scanningPills.set(element, pill);
-    }
-
-    if (pill.psHideTimer) {
-      clearTimeout(pill.psHideTimer);
-      pill.psHideTimer = null;
-    }
-
-    this.positionScanningPill(element, pill);
-    requestAnimationFrame(() => pill.classList.add('ps-scanning-pill-visible'));
+  // Inline SVG monogram derived from veil-icon.svg — single-color path
+  // representing the "stacked bars" visual mark at 14×14.
+  _buildBadgeSvg(extraClass) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 14 14');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('aria-hidden', 'true');
+    if (extraClass) svg.setAttribute('class', extraClass);
+    // Three horizontal bars (simplified from veil-icon rect elements)
+    [[1, 4, 12, 2], [1, 7, 12, 2], [1, 10, 8, 2]].forEach(([x, y, w, h]) => {
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', String(x));
+      rect.setAttribute('y', String(y));
+      rect.setAttribute('width', String(w));
+      rect.setAttribute('height', String(h));
+      rect.setAttribute('rx', '1');
+      svg.appendChild(rect);
+    });
+    return svg;
   }
 
-  positionScanningPill(element, pill) {
-    if (!element?.isConnected || !pill) return;
+  _buildCheckSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 14 14');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'ps-badge-check');
+    const path = document.createElementNS(ns, 'polyline');
+    path.setAttribute('points', '2.5,7 5.5,10 11.5,4');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  showFieldBadge(element) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 80 || rect.height < 28) return;
+
+    let badge = this.fieldBadges.get(element);
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'ps-field-badge';
+
+      const monoSvg = this._buildBadgeSvg('ps-badge-svg');
+      badge.appendChild(monoSvg);
+
+      const checkSvg = this._buildCheckSvg();
+      badge.appendChild(checkSvg);
+
+      const countEl = document.createElement('span');
+      countEl.className = 'ps-badge-count';
+      badge.appendChild(countEl);
+
+      const dotEl = document.createElement('span');
+      dotEl.className = 'ps-badge-dot';
+      badge.appendChild(dotEl);
+
+      document.body.appendChild(badge);
+      this.fieldBadges.set(element, badge);
+
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleFieldPanel(element);
+      });
+    }
+
+    this.positionFieldBadge(element, badge);
+    // Only make the badge visible if the element is currently focused or has pending items
+    const state = this.redactions.get(element);
+    const items = state?.items || [];
+    const hasPending = items.some((i) => !i.redacted);
+    if (this.focusedElements.has(element) || hasPending) {
+      requestAnimationFrame(() => badge.classList.add('ps-badge-visible'));
+    }
+  }
+
+  updateFieldBadge(element, state) {
+    const badge = this.fieldBadges.get(element);
+    if (!badge) return;
 
     const rect = element.getBoundingClientRect();
-    const margin = 10;
-    const estimatedWidth = pill.getBoundingClientRect().width || 210;
-    const insideTopOffset = Math.min(Math.max(rect.height * 0.18, 8), 18);
-    const top = window.scrollY + rect.top + insideTopOffset;
+    if (rect.width < 80 || rect.height < 28) {
+      badge.style.display = 'none';
+      return;
+    }
+    badge.style.display = '';
 
-    let left = window.scrollX + rect.left + ((rect.width - estimatedWidth) / 2);
-    const minLeft = window.scrollX + margin;
-    const maxLeft = window.scrollX + window.innerWidth - estimatedWidth - margin;
-    left = Math.max(minLeft, Math.min(maxLeft, left));
+    // Derive badge state from element state
+    const analyzing = element.classList.contains('ps-analyzing');
+    const items = state?.items || [];
+    const unredacted = items.filter((i) => !i.redacted);
+    const allRedacted = items.length > 0 && items.every((i) => i.redacted);
 
-    pill.style.top = `${top}px`;
-    pill.style.left = `${left}px`;
+    // Store classify sensitivity for the panel header
+    if (state?.sensitivity) {
+      badge.dataset.sensitivity = state.sensitivity;
+    }
+
+    // Remove all state classes
+    badge.classList.remove(
+      'ps-badge-idle', 'ps-badge-scanning', 'ps-badge-pending',
+      'ps-badge-protected', 'ps-badge-fallback'
+    );
+
+    const countEl = badge.querySelector('.ps-badge-count');
+
+    if (analyzing) {
+      badge.classList.add('ps-badge-scanning');
+      badge.title = 'Veil — scanning';
+      countEl.textContent = '';
+    } else if (unredacted.length > 0) {
+      badge.classList.add('ps-badge-pending');
+      const displayCount = unredacted.length > 9 ? '9+' : String(unredacted.length);
+      countEl.textContent = displayCount;
+      badge.title = `${unredacted.length} item${unredacted.length === 1 ? '' : 's'} need attention`;
+      // Ensure badge is visible when pending
+      badge.classList.add('ps-badge-visible');
+      // Cancel any pending blur-hide timer since there are pending items
+      const blurTimer = this.badgeBlurTimers.get(element);
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        this.badgeBlurTimers.delete(element);
+      }
+    } else if (allRedacted) {
+      badge.classList.add('ps-badge-protected');
+      countEl.textContent = '';
+      badge.title = 'All items protected';
+      // Protected state is always visible (user just acted, keep feedback visible)
+      badge.classList.add('ps-badge-visible');
+    } else if (state?.fallbackMode) {
+      badge.classList.add('ps-badge-idle', 'ps-badge-fallback');
+      countEl.textContent = '';
+      badge.title = 'Veil — regex-only mode';
+    } else {
+      badge.classList.add('ps-badge-idle');
+      countEl.textContent = '';
+      badge.title = 'Veil';
+    }
   }
 
-  repositionScanningPills() {
-    this.scanningPills.forEach((pill, element) => {
-      if (!element?.isConnected || !pill?.isConnected) {
-        pill?.remove?.();
-        this.scanningPills.delete(element);
+  positionFieldBadge(element, badge) {
+    if (!element?.isConnected || !badge) return;
+
+    const rect = element.getBoundingClientRect();
+    const clipRect = this.getOverlayClipRect(element);
+
+    if (rect.width < 80 || rect.height < 28) {
+      badge.style.display = 'none';
+      return;
+    }
+    badge.style.display = '';
+
+    const badgeSize = 26;
+    const inset = 8;
+
+    // Bottom-right of field, inset 8px
+    let top = rect.bottom - badgeSize - inset;
+    let left = rect.right - badgeSize - inset;
+
+    // Clamp to clip rect (for internal-scroll editors)
+    if (clipRect) {
+      top = Math.max(clipRect.top + inset, Math.min(clipRect.bottom - badgeSize - inset, top));
+      left = Math.max(clipRect.left + inset, Math.min(clipRect.right - badgeSize - inset, left));
+      // If the badge is completely outside the clip rect, hide it
+      if (top + badgeSize < clipRect.top || top > clipRect.bottom ||
+          left + badgeSize < clipRect.left || left > clipRect.right) {
+        badge.style.display = 'none';
         return;
       }
-      this.positionScanningPill(element, pill);
+    }
+
+    badge.style.top = `${top}px`;
+    badge.style.left = `${left}px`;
+  }
+
+  repositionFieldBadges() {
+    this.fieldBadges.forEach((badge, element) => {
+      if (!element?.isConnected || !badge?.isConnected) {
+        badge?.remove?.();
+        this.fieldBadges.delete(element);
+        return;
+      }
+      this.positionFieldBadge(element, badge);
+    });
+    // Also reposition any open panel
+    this.fieldPanels.forEach((panel, element) => {
+      if (!element?.isConnected || !panel?.isConnected) {
+        panel?.remove?.();
+        this.fieldPanels.delete(element);
+        return;
+      }
+      this.positionFieldPanel(element, panel);
     });
   }
 
-  updateScanningPillWithSensitivity(element, { sensitivity, score }) {
-    if (!sensitivity || sensitivity === 'none' || sensitivity === 'low') return;
-    const pill = this.scanningPills.get(element);
-    if (!pill) return;
-    const colors = { high: '#dc2626', medium: '#d97706' };
-    const labels = { high: 'High Risk', medium: 'Moderate Risk' };
-    const color = colors[sensitivity];
-    const label = labels[sensitivity];
-    if (!color) return;
-    let badge = pill.querySelector('.ps-sensitivity-badge');
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'ps-sensitivity-badge';
-      badge.style.cssText = `
-        display:inline-block;padding:1px 6px;border-radius:999px;
-        font-size:9px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;
-        margin-left:4px;
-      `;
-      pill.appendChild(badge);
+  hideFieldBadge(element) {
+    const badge = this.fieldBadges.get(element);
+    if (!badge) return;
+
+    // Cancel any pending blur timer
+    const blurTimer = this.badgeBlurTimers.get(element);
+    if (blurTimer) {
+      clearTimeout(blurTimer);
+      this.badgeBlurTimers.delete(element);
     }
-    badge.textContent = label;
-    badge.style.setProperty('color', '#fff');
-    badge.style.setProperty('background', color);
+
+    badge.classList.remove('ps-badge-visible');
+    const hideTimer = setTimeout(() => {
+      badge.remove();
+      this.fieldBadges.delete(element);
+    }, 200);
+    badge._hideTimer = hideTimer;
   }
 
-  hideScanningPill(element) {
-    const pill = this.scanningPills.get(element);
-    if (!pill) return;
-    pill.classList.remove('ps-scanning-pill-visible');
-    pill.psHideTimer = setTimeout(() => {
-      pill.remove();
-      this.scanningPills.delete(element);
-      pill.psHideTimer = null;
-    }, 900);
+  scheduleFieldBadgeBlurHide(element) {
+    // Only hide on blur if state is idle (no pending items)
+    const state = this.redactions.get(element);
+    const items = state?.items || [];
+    const hasPending = items.some((i) => !i.redacted);
+
+    if (hasPending) return; // Pending state stays visible after blur
+
+    const timer = setTimeout(() => {
+      this.badgeBlurTimers.delete(element);
+      const badge = this.fieldBadges.get(element);
+      if (!badge) return;
+      badge.classList.remove('ps-badge-visible');
+    }, 2000);
+    this.badgeBlurTimers.set(element, timer);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Field Panel
+  // ═══════════════════════════════════════════════════════════
+
+  toggleFieldPanel(element) {
+    const existing = this.fieldPanels.get(element);
+    if (existing) {
+      this.hideFieldPanel(element);
+    } else {
+      this.showFieldPanel(element);
+    }
+  }
+
+  showFieldPanel(element) {
+    this.hideFieldPanel(element);
+    const state = this.redactions.get(element);
+    if (!state || !state.items || state.items.length === 0) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'ps-field-panel';
+
+    // ── Header ──
+    const header = document.createElement('div');
+    header.className = 'ps-panel-header';
+
+    const title = document.createElement('span');
+    title.className = 'ps-panel-title';
+    title.textContent = `Veil · ${state.items.length} item${state.items.length === 1 ? '' : 's'}`;
+    header.appendChild(title);
+
+    // Risk chip (sourced from stored sensitivity)
+    const badge = this.fieldBadges.get(element);
+    const sensitivity = badge?.dataset?.sensitivity || state.sensitivity;
+    if (sensitivity === 'high' || sensitivity === 'medium') {
+      const chip = document.createElement('span');
+      chip.className = 'ps-panel-risk-chip';
+      if (sensitivity === 'high') {
+        chip.classList.add('ps-panel-risk-high');
+        chip.textContent = 'High risk';
+      } else {
+        chip.classList.add('ps-panel-risk-moderate');
+        chip.textContent = 'Moderate risk';
+      }
+      header.appendChild(chip);
+    }
+
+    panel.appendChild(header);
+
+    // ── Item rows ──
+    const itemList = document.createElement('div');
+    itemList.className = 'ps-panel-items';
+
+    state.items.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'ps-panel-row';
+      row.style.setProperty('--row-color', this.getTypeColor(item.label));
+
+      const dot = document.createElement('span');
+      dot.className = 'ps-panel-dot';
+      row.appendChild(dot);
+
+      const labelEl = document.createElement('span');
+      labelEl.className = 'ps-panel-row-label';
+      labelEl.textContent = this.formatLabel(item.label);
+      row.appendChild(labelEl);
+
+      const valueEl = document.createElement('span');
+      valueEl.className = 'ps-panel-row-value';
+      valueEl.textContent = this._middleTruncate(String(item.text || ''), 28);
+      row.appendChild(valueEl);
+
+      const actions = document.createElement('span');
+      actions.className = 'ps-panel-row-actions';
+
+      // Dismiss button
+      const dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'ps-panel-row-btn';
+      dismissBtn.title = 'Dismiss';
+      dismissBtn.setAttribute('aria-label', `Dismiss ${this.formatLabel(item.label)}`);
+      const dismissSvg = this._buildDismissSvg();
+      dismissBtn.appendChild(dismissSvg);
+      dismissBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.dismissDetection(element, index);
+        this.hideFieldPanel(element);
+        const newState = this.redactions.get(element);
+        if (newState && newState.items.length > 0) {
+          this.showFieldPanel(element);
+        }
+      });
+      actions.appendChild(dismissBtn);
+
+      // Redact / restore toggle button
+      const redactBtn = document.createElement('button');
+      redactBtn.type = 'button';
+      redactBtn.className = 'ps-panel-row-btn';
+      if (item.redacted) {
+        redactBtn.title = 'Restore';
+        redactBtn.setAttribute('aria-label', `Restore ${this.formatLabel(item.label)}`);
+        const restoreSvg = this._buildRestoreSvg();
+        redactBtn.appendChild(restoreSvg);
+        redactBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleRedaction(element, index);
+          this.hideFieldPanel(element);
+          this.showFieldPanel(element);
+        });
+      } else {
+        redactBtn.title = 'Redact';
+        redactBtn.setAttribute('aria-label', `Redact ${this.formatLabel(item.label)}`);
+        const redactSvg = this._buildRedactSvg();
+        redactBtn.appendChild(redactSvg);
+        redactBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.redactSingle(element, index);
+          this.hideFieldPanel(element);
+          this.showFieldPanel(element);
+        });
+      }
+      actions.appendChild(redactBtn);
+
+      row.appendChild(actions);
+      itemList.appendChild(row);
+    });
+
+    panel.appendChild(itemList);
+
+    // ── Divider ──
+    const divider = document.createElement('hr');
+    divider.className = 'ps-panel-divider';
+    panel.appendChild(divider);
+
+    // ── Footer ──
+    const footer = document.createElement('div');
+    footer.className = 'ps-panel-footer';
+
+    const unredacted = state.items.filter((i) => !i.redacted);
+    const redacted = state.items.filter((i) => i.redacted);
+
+    if (unredacted.length > 0) {
+      const redactAllBtn = document.createElement('button');
+      redactAllBtn.type = 'button';
+      redactAllBtn.className = 'ps-panel-btn ps-panel-btn-redact';
+      redactAllBtn.textContent = 'Redact all';
+      redactAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.cancelAutoRedact(element);
+        this.redactAll(element);
+        this.hideFieldPanel(element);
+        const newState = this.redactions.get(element);
+        if (newState && newState.items.length > 0) {
+          this.showFieldPanel(element);
+        }
+      });
+      footer.appendChild(redactAllBtn);
+    }
+
+    if (redacted.length > 0) {
+      const restoreAllBtn = document.createElement('button');
+      restoreAllBtn.type = 'button';
+      restoreAllBtn.className = 'ps-panel-btn ps-panel-btn-restore';
+      restoreAllBtn.textContent = 'Restore all';
+      restoreAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.restoreAll(element);
+        this.hideFieldPanel(element);
+        const newState = this.redactions.get(element);
+        if (newState && newState.items.length > 0) {
+          this.showFieldPanel(element);
+        }
+      });
+      footer.appendChild(restoreAllBtn);
+    }
+
+    panel.appendChild(footer);
+
+    document.body.appendChild(panel);
+    this.fieldPanels.set(element, panel);
+
+    this.positionFieldPanel(element, panel);
+    requestAnimationFrame(() => panel.classList.add('ps-panel-visible'));
+
+    // Close on outside click
+    const outsideClickHandler = (e) => {
+      const badge = this.fieldBadges.get(element);
+      if (!panel.contains(e.target) && e.target !== badge && !badge?.contains(e.target)) {
+        this.hideFieldPanel(element);
+        document.removeEventListener('mousedown', outsideClickHandler, true);
+      }
+    };
+    document.addEventListener('mousedown', outsideClickHandler, true);
+    panel._outsideClickHandler = outsideClickHandler;
+
+    // Close on Escape
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        this.hideFieldPanel(element);
+        document.removeEventListener('keydown', escHandler, true);
+      }
+    };
+    document.addEventListener('keydown', escHandler, true);
+    panel._escHandler = escHandler;
+
+    // Hide token tray while panel is open
+    const tray = this.tokenTrays.get(element);
+    if (tray) tray.style.display = 'none';
+  }
+
+  positionFieldPanel(element, panel) {
+    if (!element?.isConnected || !panel?.isConnected) return;
+    const rect = element.getBoundingClientRect();
+    const panelH = panel.offsetHeight || 180;
+    const panelW = panel.offsetWidth || 240;
+    const spaceBelow = window.innerHeight - rect.bottom;
+
+    let top;
+    if (spaceBelow >= panelH + 8) {
+      top = rect.bottom + 6;
+    } else {
+      // Flip above
+      top = rect.top - panelH - 6;
+    }
+
+    let left = rect.left;
+    const maxLeft = window.innerWidth - panelW - 8;
+    if (left > maxLeft) left = Math.max(8, maxLeft);
+
+    panel.style.top = `${top}px`;
+    panel.style.left = `${left}px`;
+  }
+
+  hideFieldPanel(element) {
+    const panel = this.fieldPanels.get(element);
+    if (!panel) return;
+
+    if (panel._outsideClickHandler) {
+      document.removeEventListener('mousedown', panel._outsideClickHandler, true);
+      panel._outsideClickHandler = null;
+    }
+    if (panel._escHandler) {
+      document.removeEventListener('keydown', panel._escHandler, true);
+      panel._escHandler = null;
+    }
+
+    panel.classList.remove('ps-panel-visible');
+    setTimeout(() => {
+      if (panel.isConnected) panel.remove();
+    }, 200);
+    this.fieldPanels.delete(element);
+
+    // Restore token tray visibility
+    const tray = this.tokenTrays.get(element);
+    if (tray) tray.style.display = '';
+  }
+
+  // Inline SVG helpers for panel row buttons
+  _buildDismissSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    const l1 = document.createElementNS(ns, 'line');
+    l1.setAttribute('x1', '2'); l1.setAttribute('y1', '2');
+    l1.setAttribute('x2', '10'); l1.setAttribute('y2', '10');
+    const l2 = document.createElementNS(ns, 'line');
+    l2.setAttribute('x1', '10'); l2.setAttribute('y1', '2');
+    l2.setAttribute('x2', '2'); l2.setAttribute('y2', '10');
+    svg.appendChild(l1);
+    svg.appendChild(l2);
+    return svg;
+  }
+
+  _buildRedactSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('aria-hidden', 'true');
+    // Shield icon
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M6 1 L10.5 3 L10.5 6.5 Q10.5 9.5 6 11 Q1.5 9.5 1.5 6.5 L1.5 3 Z');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  _buildRestoreSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    // Undo arrow
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M2 5.5 A4 4 0 1 1 3.5 9');
+    svg.appendChild(path);
+    const line = document.createElementNS(ns, 'polyline');
+    line.setAttribute('points', '2,3 2,6 5,6');
+    svg.appendChild(line);
+    return svg;
+  }
+
+  _middleTruncate(text, maxLen) {
+    if (!text || text.length <= maxLen) return text;
+    const half = Math.floor(maxLen / 2) - 1;
+    return `${text.slice(0, half)}…${text.slice(text.length - half)}`;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1218,14 +1708,26 @@ class VeilContentController {
     }
 
     this.setAnalyzingState(element, true);
-    this.showScanningPill(element);
+    this.showFieldBadge(element);
+    this.updateFieldBadge(element, this.redactions.get(element));
     const useFastProtection = this.shouldUseFastProtection(reason, sourceText);
     let fastProtectionApplied = false;
 
     if (sourceText.length >= 20 && sourceText.length < FAST_PROTECTION_MIN_CHARS) {
       chrome.runtime.sendMessage({ action: 'classifyPII', text: sourceText }, (res) => {
         if (chrome.runtime.lastError) return;
-        if (res?.success && res.result) this.updateScanningPillWithSensitivity(element, res.result);
+        if (res?.success && res.result) {
+          // Store sensitivity on the badge for the panel header
+          const badge = this.fieldBadges.get(element);
+          if (badge && res.result.sensitivity) {
+            badge.dataset.sensitivity = res.result.sensitivity;
+          }
+          // Also store on state if it exists
+          const st = this.redactions.get(element);
+          if (st && res.result.sensitivity) {
+            st.sensitivity = res.result.sensitivity;
+          }
+        }
       });
     }
 
@@ -1335,8 +1837,8 @@ class VeilContentController {
         .sort((a, b) => a.start - b.start);
 
       if (allItems.length === 0) {
-        this.hideScanningPill(element);
         this.setAnalyzingState(element, false);
+        this.updateFieldBadge(element, this.redactions.get(element));
         return;
       }
 
@@ -1345,8 +1847,8 @@ class VeilContentController {
       }));
       const signature = this.buildSignature(sourceText, allDetectionsForSignature);
       if (this.lastDetectionSignature.get(element) === signature) {
-        this.hideScanningPill(element);
         this.setAnalyzingState(element, false);
+        this.updateFieldBadge(element, this.redactions.get(element));
         return;
       }
 
@@ -1390,8 +1892,9 @@ class VeilContentController {
         this.showNotification('Model offline — regex fallback active', 'warning');
       }
     } finally {
-      this.hideScanningPill(element);
       this.setAnalyzingState(element, false);
+      const finalState = this.redactions.get(element);
+      this.updateFieldBadge(element, finalState);
     }
   }
 
@@ -1888,6 +2391,8 @@ class VeilContentController {
       // fixed-position highlights instead so visuals survive without touching the editor DOM.
       this._scheduleOverlayUpdate(element);
       this.scheduleAssistantResponseRestore('render');
+      // Update badge after render
+      this.updateFieldBadge(element, state);
       return;
     }
 
@@ -1909,7 +2414,11 @@ class VeilContentController {
     if (state.items.some((i) => i.redacted)) {
       this.playCommitAnimation(element);
     }
-    this.renderTokenTray(element, state);
+    // Token tray only renders while the panel is closed
+    if (!this.fieldPanels.has(element)) {
+      this.renderTokenTray(element, state);
+    }
+    this.updateFieldBadge(element, state);
     this.scheduleAssistantResponseRestore('render');
   }
 
@@ -2834,90 +3343,6 @@ class VeilContentController {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // Action Bar (Redact All / Restore All near the field)
-  // ═══════════════════════════════════════════════════════════
-
-  showActionBar(element, state) {
-    this.removeActionBar(element);
-
-    const unredactedCount = state.items.filter((i) => !i.redacted).length;
-    const redactedCount = state.items.filter((i) => i.redacted).length;
-    if (unredactedCount === 0 && redactedCount === 0) return;
-
-    const bar = document.createElement('div');
-    bar.className = 'ps-action-bar';
-
-    const countLabel = document.createElement('span');
-    countLabel.className = 'ps-action-bar-count';
-    countLabel.textContent = `${state.items.length} PII${state.items.length === 1 ? '' : 's'}`;
-    bar.appendChild(countLabel);
-
-    if (unredactedCount > 0) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ps-action-bar-btn ps-action-bar-btn-redact';
-      btn.textContent = `🛡 Redact All (${unredactedCount})`;
-      btn.addEventListener('click', () => {
-        this.cancelAutoRedact(element);
-        this.redactAll(element);
-      });
-      bar.appendChild(btn);
-    }
-
-    if (redactedCount > 0) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ps-action-bar-btn ps-action-bar-btn-restore';
-      btn.textContent = `Restore All (${redactedCount})`;
-      btn.addEventListener('click', () => {
-        this.restoreAll(element);
-      });
-      bar.appendChild(btn);
-    }
-
-    document.body.appendChild(bar);
-    this.actionBars.set(element, bar);
-    this.positionActionBar(element, bar);
-    requestAnimationFrame(() => {
-      this.positionActionBar(element, bar);
-      bar.classList.add('ps-action-bar-visible');
-    });
-  }
-
-  removeActionBar(element) {
-    const bar = this.actionBars.get(element);
-    if (!bar) return;
-    bar.remove();
-    this.actionBars.delete(element);
-  }
-
-  positionActionBar(element, bar) {
-    if (!element?.isConnected || !bar?.isConnected) return;
-    const rect = element.getBoundingClientRect();
-    if (rect.width < 48 || rect.height < 18) {
-      bar.remove();
-      this.actionBars.delete(element);
-      return;
-    }
-    bar.style.top = `${window.scrollY + rect.bottom + 6}px`;
-    bar.style.left = `${window.scrollX + rect.left}px`;
-    const maxLeft = window.scrollX + window.innerWidth - bar.offsetWidth - 8;
-    if (parseFloat(bar.style.left) > maxLeft) {
-      bar.style.left = `${Math.max(8, maxLeft)}px`;
-    }
-  }
-
-  repositionActionBars() {
-    this.actionBars.forEach((bar, element) => {
-      if (!element?.isConnected || !bar?.isConnected) {
-        bar?.remove?.();
-        this.actionBars.delete(element);
-        return;
-      }
-      this.positionActionBar(element, bar);
-    });
-  }
 
   // ═══════════════════════════════════════════════════════════
   // Single-item Actions
@@ -3174,8 +3599,8 @@ class VeilContentController {
     this.cancelPostInteractionCleanup(element);
     element.classList.remove('ps-awaiting-idle', 'ps-analyzing', 'ps-redaction-commit');
     this.removeTokenTray(element);
-    this.removeActionBar(element);
-    this.hideScanningPill(element);
+    this.hideFieldPanel(element);
+    this.hideFieldBadge(element);
     this.cancelAutoRedact(element);
 
     // Strip injected PII spans from contenteditable elements to avoid visual artifacts
@@ -3360,6 +3785,7 @@ class VeilContentController {
     this.monitoredElements.forEach((listeners, element) => {
       element.removeEventListener('input', listeners.handleInput);
       element.removeEventListener('paste', listeners.handlePaste);
+      element.removeEventListener('focus', listeners.handleFocus);
       element.removeEventListener('blur', listeners.handleBlur);
       element.removeEventListener('keydown', listeners.handleKeydown);
       element.removeEventListener('compositionstart', listeners.handleCompositionStart);
@@ -3393,11 +3819,24 @@ class VeilContentController {
     this.autoRedactTimers.forEach((timer) => clearTimeout(timer));
     this.autoRedactTimers.clear();
 
-    this.scanningPills.forEach((pill) => {
-      if (pill?.psHideTimer) clearTimeout(pill.psHideTimer);
-      pill?.remove?.();
+    this.fieldBadges.forEach((badge) => {
+      if (badge?._hideTimer) clearTimeout(badge._hideTimer);
+      badge?.remove?.();
     });
-    this.scanningPills.clear();
+    this.fieldBadges.clear();
+    this.fieldPanels.forEach((panel) => {
+      if (panel?._outsideClickHandler) {
+        document.removeEventListener('mousedown', panel._outsideClickHandler, true);
+      }
+      if (panel?._escHandler) {
+        document.removeEventListener('keydown', panel._escHandler, true);
+      }
+      panel?.remove?.();
+    });
+    this.fieldPanels.clear();
+    this.badgeBlurTimers.forEach((timer) => clearTimeout(timer));
+    this.badgeBlurTimers.clear();
+    this.focusedElements.clear();
 
     this.hidePopover();
     this.hideRevealOverlay();

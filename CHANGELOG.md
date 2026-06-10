@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- Replaced the "Veil / Scanning..." banner pill and the floating action bar with a single 26 px corner badge per field. The badge morphs between five states — idle monogram, spinning scanner, amber count of unredacted items, green check when all protected, and a fallback dot when the server is offline — so the field is never obscured while typing.
+- Clicking the badge opens a compact panel listing each detected item with individual redact, restore, and dismiss actions, plus "Redact all" and "Restore all" footer buttons. The panel replaces the old action bar entirely.
+- The token tray remains for redacted textarea/input fields but is hidden while the panel is open to avoid duplication.
+
+---
+
 ## [1.2.8] - 2026-04-04
 
 ### Windows Installer
