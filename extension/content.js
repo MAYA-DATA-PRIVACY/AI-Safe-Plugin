@@ -147,6 +147,9 @@ class VeilContentController {
     this.autoRedactTimers = new Map();
     this.dismissedDetections = new WeakMap(); // element → Set of "start:end:label"
     this.maskModeHintChecked = false;
+    // True while the local model is unreachable and regex-only protection is
+    // active — drives the field badge's fallback indicator dot.
+    this.modelOffline = false;
 
     // Per-site alias ledger — ensures PERSON_1 stays PERSON_1 across sessions
     // on the same site. Loaded from chrome.storage on init, 30-day TTL.
@@ -1181,7 +1184,7 @@ class VeilContentController {
       badge.title = 'All items protected';
       // Protected state is always visible (user just acted, keep feedback visible)
       badge.classList.add('ps-badge-visible');
-    } else if (state?.fallbackMode) {
+    } else if (this.modelOffline) {
       badge.classList.add('ps-badge-idle', 'ps-badge-fallback');
       countEl.textContent = '';
       badge.title = 'Veil — regex-only mode';
@@ -1190,6 +1193,10 @@ class VeilContentController {
       countEl.textContent = '';
       badge.title = 'Veil';
     }
+
+    // Offline is a modifier on top of the other states: keep the dot visible
+    // while scanning/pending/protected so regex-only mode stays discoverable.
+    if (this.modelOffline) badge.classList.add('ps-badge-fallback');
   }
 
   positionFieldBadge(element, badge) {
@@ -1241,6 +1248,13 @@ class VeilContentController {
       if (!element?.isConnected || !panel?.isConnected) {
         panel?.remove?.();
         this.fieldPanels.delete(element);
+        return;
+      }
+      // Close the panel when its badge has been clipped out of view
+      // (field scrolled beyond the editor's internal clip rect).
+      const badge = this.fieldBadges.get(element);
+      if (badge && badge.style.display === 'none') {
+        this.hideFieldPanel(element);
         return;
       }
       this.positionFieldPanel(element, panel);
@@ -1889,6 +1903,7 @@ class VeilContentController {
       // Surface model-offline state as a non-blocking notification so users know
       // regex fallback is active rather than silently getting degraded detection.
       if (/failed to fetch|networkerror|connection refused|econnrefused/i.test(String(error?.message || ''))) {
+        this.modelOffline = true;
         this.showNotification('Model offline — regex fallback active', 'warning');
       }
     } finally {
@@ -3709,14 +3724,18 @@ class VeilContentController {
 
   handleRuntimeMessage(request, _sender, sendResponse) {
     if (request?.action === 'serverCrashed') {
-      this.showNotification('⚠ GLiNER2 server offline — using regex fallback.', 'warning');
+      this.modelOffline = true;
+      this.fieldBadges.forEach((_, el) => this.updateFieldBadge(el, this.redactions.get(el)));
+      this.showNotification('GLiNER2 server offline — using regex fallback.', 'warning');
       // Reset detector mode so next detection triggers a re-check
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
       return false;
     }
 
     if (request?.action === 'serverRestored') {
-      this.showNotification('✓ Local model back online — full AI detection active.', 'info');
+      this.modelOffline = false;
+      this.fieldBadges.forEach((_, el) => this.updateFieldBadge(el, this.redactions.get(el)));
+      this.showNotification('Local model back online — full AI detection active.', 'info');
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
       return false;
     }
