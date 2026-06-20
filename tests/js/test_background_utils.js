@@ -17,6 +17,9 @@ const {
   hostMatchesSite,
   isoWeekKey,
   mergeRedactionStats,
+  SYNCED_SETTING_KEYS,
+  chunkForSync,
+  reassembleChunks,
 } = require('../../extension/pattern_catalog.js');
 const {
   REGEX_SMOKE_TEXT,
@@ -565,6 +568,33 @@ section('privacy stats helpers (U7)');
 
   // Counts only — no value/site fields ever appear.
   assertEqual(Object.keys(s2).sort(), ['byLabel', 'byWeek', 'totalProtected'], 'stats object only holds count buckets');
+}
+
+section('settings sync helpers (P2)');
+{
+  // chunkForSync → reassembleChunks round-trip.
+  const small = { enabled: true, sensitivity: 'high' };
+  assertEqual(reassembleChunks(chunkForSync(small).chunks), small, 'small value round-trips through chunking');
+
+  // A value larger than one chunk splits and rejoins exactly.
+  const big = { customPatterns: Array.from({ length: 400 }, (_, i) => ({ id: `p${i}`, pattern: `\\bword${i}\\b`, flags: 'g' })) };
+  const chunked = chunkForSync(big, 1000);
+  assert(chunked.count > 1, `large value splits into multiple chunks (got ${chunked.count})`);
+  assertEqual(reassembleChunks(chunked.chunks), big, 'large value round-trips through chunking');
+
+  assertEqual(reassembleChunks([]), undefined, 'reassembleChunks tolerates empty input');
+  assertEqual(reassembleChunks(['{bad json']), undefined, 'reassembleChunks tolerates corrupt input');
+
+  // SYNCED_SETTING_KEYS must never include a sensitive key.
+  const forbidden = [
+    'aiSafePluginApiKey', 'aiSafePluginAnonymizationSeed', 'hfToken',
+    'aiSafePluginServerToken', 'aiSafePluginStats', 'siteSnoozes', 'selectedModel',
+    'aiSafePluginLocalServerUrlOverride',
+  ];
+  for (const key of forbidden) {
+    assertEqual(SYNCED_SETTING_KEYS.includes(key), false, `SYNCED_SETTING_KEYS excludes sensitive key ${key}`);
+  }
+  assertEqual(SYNCED_SETTING_KEYS.includes('sensitivity'), true, 'SYNCED_SETTING_KEYS includes a normal pref (sensitivity)');
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

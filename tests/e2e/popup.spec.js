@@ -560,3 +560,34 @@ test.describe('Delete all AI-Safe Plugin data', () => {
         expect(after.enabled).toBe(true);
     });
 });
+
+test.describe('Settings Sync (P2)', () => {
+    test('non-sensitive settings sync; secrets never do', async ({ extensionOptions }) => {
+        const { page } = extensionOptions;
+
+        await page.waitForFunction(() => {
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
+
+        // Clear any prior sync state, then seed a local secret that must never sync.
+        await page.evaluate(() => new Promise((resolve) => chrome.storage.sync.clear(resolve)));
+        await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({ aiSafePluginApiKey: 'fake-sync-secret' }, resolve)));
+
+        // Change a synced setting.
+        await page.locator('#sensitivitySelect').selectOption('high');
+
+        // The synced value + meta appear in chrome.storage.sync (write-through is debounced).
+        await expect.poll(() => page.evaluate(() =>
+            new Promise((resolve) => chrome.storage.sync.get('sensitivity', (d) => resolve(d.sensitivity || null)))), { timeout: 5000 })
+            .toBe('high');
+
+        const sync = await page.evaluate(() => new Promise((resolve) => chrome.storage.sync.get(null, resolve)));
+        expect(sync.aiSafePluginSyncMeta && sync.aiSafePluginSyncMeta.updatedAt).toBeTruthy();
+
+        // Secrets must never be written to sync — by key or by value.
+        expect(sync.aiSafePluginApiKey).toBeUndefined();
+        expect(JSON.stringify(sync)).not.toContain('fake-sync-secret');
+    });
+});

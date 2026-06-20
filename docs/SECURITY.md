@@ -35,7 +35,8 @@ The surfaces most relevant to security researchers are:
 | Content script ↔ background message | Structured-clone boundary; validate all message shapes |
 | Background ↔ local Python server | HTTP on `127.0.0.1:8765`. Detection endpoints (`/detect`, `/classify`, `/structure`, `/anonymize`) require a per-machine shared token (`X-AI-Safe-Plugin-Token`); CORS is limited to `chrome-extension://`/`moz-extension://` origins (plus any in `AI_SAFE_PLUGIN_EXTRA_ALLOWED_ORIGINS`). The server also validates the `Host` header (loopback only) and applies a per-request socket timeout |
 | Local server ↔ Maya anonymisation API | Optional external call for selected anonymisation payloads only when Anonymize mode and a Maya API key are configured |
-| `chrome.storage.local` | Settings, custom patterns, API key, counters, and cached redaction state are stored locally; no Chrome sync storage is used |
+| `chrome.storage.local` | API key, anonymisation seed, server token, alias/ignore ledgers, cached redaction state, local stats, and per-site snoozes are stored locally only |
+| `chrome.storage.sync` | Only non-sensitive preferences sync across devices (enabled, sensitivity, redaction mode, auto-redact, enabled types, custom patterns/detectors, monitored/excluded sites and selectors). Secrets, ledgers, caches, stats, and snoozes are never synced |
 | Custom regex patterns | Executed client-side; regex DoS (ReDoS) possible with malicious patterns |
 
 ---
@@ -62,7 +63,7 @@ The surfaces most relevant to security researchers are:
 
 ## Known Accepted Risks
 
-- **Local browser storage**: Maya API keys and cached redaction state are stored in `chrome.storage.local`. This keeps data off Chrome sync, but it is still accessible to the local browser profile and should be treated as sensitive local data.
+- **Local browser storage**: Maya API keys and cached redaction state are stored in `chrome.storage.local` and are never written to Chrome sync — only non-sensitive preferences sync across devices. Local data is still accessible to the local browser profile and should be treated as sensitive.
 - **Localhost exposure**: The local server trusts the user's machine boundary. CORS headers are restricted to trusted extension and localhost origins, but other local software can still interact with localhost services if it has sufficient local access.
 
 ---

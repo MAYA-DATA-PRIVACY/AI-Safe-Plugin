@@ -4,7 +4,44 @@ import './pattern_catalog.js';
 
 const {
   cloneDefaultCustomPatterns,
+  SYNCED_SETTING_KEYS,
+  reassembleChunks,
 } = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
+
+const SYNC_CHUNKED_KEYS = ['customPatterns', 'customEntityTypes'];
+
+// P2: copy synced settings (chrome.storage.sync) into local when the synced copy
+// is newer than this device's last local write. Content scripts then pick up the
+// local change through their existing storage.onChanged reconciler. Local is the
+// source of truth; we only import when another device's write is strictly newer.
+async function applySyncedSettingsIfNewer() {
+  try {
+    const [syncData, localData] = await Promise.all([
+      new Promise((resolve) => chrome.storage.sync.get(null, resolve)),
+      new Promise((resolve) => chrome.storage.local.get(['aiSafePluginSettingsUpdatedAt'], resolve)),
+    ]);
+    const syncTs = Number(syncData?.aiSafePluginSyncMeta?.updatedAt) || 0;
+    const localTs = Number(localData?.aiSafePluginSettingsUpdatedAt) || 0;
+    if (syncTs <= localTs) return; // not newer (or our own write) → no-op, no loop
+
+    const toApply = {};
+    for (const key of SYNCED_SETTING_KEYS) {
+      if (SYNC_CHUNKED_KEYS.includes(key)) {
+        const count = Number(syncData[`${key}__count`]) || 0;
+        if (count <= 0) continue;
+        const parts = [];
+        for (let i = 0; i < count; i++) parts.push(syncData[`${key}__chunk${i}`] ?? '');
+        const value = reassembleChunks(parts);
+        if (value !== undefined) toApply[key] = value;
+      } else if (syncData[key] !== undefined) {
+        toApply[key] = syncData[key];
+      }
+    }
+    if (Object.keys(toApply).length === 0) return;
+    toApply.aiSafePluginSettingsUpdatedAt = syncTs;
+    await new Promise((resolve) => chrome.storage.local.set(toApply, resolve));
+  } catch { /* sync unavailable — local remains authoritative */ }
+}
 
 const DEFAULT_LABELS = [
   'person',
@@ -1467,19 +1504,27 @@ chrome.runtime.onInstalled.addListener(() => {
     customPatterns: getDefaultCustomPatterns(),
     monitoredSelectors: DEFAULT_MONITORED_SELECTORS,
     monitoredSites: [
-      'claude.ai',
-      'gemini.google.com',
-      'chatgpt.com',
-      'chat.openai.com',
-      'copilot.microsoft.com',
-      'poe.com'
+      'chatgpt.com', 'chat.openai.com', 'claude.ai', 'gemini.google.com',
+      'copilot.microsoft.com', 'perplexity.ai', 'grok.com', 'x.ai',
+      'chat.deepseek.com', 'chat.mistral.ai', 'poe.com', 'character.ai',
+      'pi.ai', 'you.com', 'meta.ai', 'chat.qwen.ai', 'chat.qwenlm.ai',
+      'duck.ai', 'huggingface.co', 'phind.com', 't3.chat'
     ]
+  }, () => {
+    // After seeding defaults, restore any newer synced prefs (e.g. on reinstall).
+    applySyncedSettingsIfNewer();
   });
   detector.warmUpIfAvailable().catch(() => { });
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  applySyncedSettingsIfNewer();
   detector.warmUpIfAvailable().catch(() => { });
+});
+
+// Live cross-device apply: when another device updates synced settings, import them.
+chrome.storage.onChanged.addListener((_changes, areaName) => {
+  if (areaName === 'sync') applySyncedSettingsIfNewer();
 });
 
 // Clear the toolbar badge (U1) when a tab navigates — the content script will

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Releases now publish a `SHA256SUMS` file, and both installers verify downloaded assets against it: a backend-bundle mismatch aborts the install, a model mismatch falls back to the Hugging Face download, and a missing `SHA256SUMS` (older releases) warns and continues.
 - The local server no longer writes anonymisation response bodies to its logs. Anonymisation logging is now metadata-only by default (counts, status codes, and body sizes), so raw values returned by the Maya endpoint never reach the logs. Verbose logging can be restored for debugging by setting `AI_SAFE_PLUGIN_DEBUG_ANON_LOGS=1`.
 
+### Added
+
+- Non-sensitive settings now sync across your devices via Chrome sync: protection toggle, sensitivity, redaction mode, auto-redact, enabled types, custom patterns and detectors, and monitored/excluded sites and selectors. Secrets (Maya API key, anonymisation seed, server token), per-site ledgers, caches, local stats, and per-site snoozes are never synced and stay on the device. Local remains the source of truth; a newer copy from another device is applied on startup and live.
+
 ### Changed
 
 - Expanded the default monitored-sites list to cover today's major AI chat apps — ChatGPT, Claude, Gemini, Copilot, Perplexity, Grok, DeepSeek, Mistral Le Chat, Poe, Character.AI, Pi, You.com, Meta AI, Qwen, DuckDuckGo (duck.ai), Hugging Face, Phind, and T3 Chat — so scoped monitoring protects them out of the box. (With "monitor all sites" on by default, every site is already covered; this improves the allowlist used when you scope monitoring to specific sites.)

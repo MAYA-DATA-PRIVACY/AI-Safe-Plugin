@@ -6,8 +6,14 @@ const {
   cloneDefaultCustomPatterns,
   normalizeCustomPatterns,
   normalizeSiteHost,
-  isoWeekKey
+  isoWeekKey,
+  SYNCED_SETTING_KEYS,
+  chunkForSync
 } = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
+
+// Array-valued synced keys that may exceed chrome.storage.sync's per-item quota
+// and are therefore stored chunked (<key>__count + <key>__chunkN).
+const SYNC_CHUNKED_KEYS = ['customPatterns', 'customEntityTypes'];
 const DEFAULT_SERVER_MODEL = 'fastino/gliner2-large-v1';
 const SITE_SNOOZE_MS = 60 * 60 * 1000;
 const MODEL_SELECTION_ALIASES = {
@@ -1787,6 +1793,37 @@ class SettingsManager {
   updateSetting(key, value) {
     this.settings[key] = value;
     chrome.storage.local.set({ [key]: value }, () => this.setMessage('Saved'));
+    this.persistSyncedSettings();
+  }
+
+  // P2: mirror the non-sensitive settings subset to chrome.storage.sync (debounced).
+  // Local stays the source of truth; a sync failure never breaks the local save, and
+  // no secret/ledger/cache/stat is ever written here. Equal local+sync timestamps
+  // keep the background apply-on-startup from clobbering a just-made local edit.
+  persistSyncedSettings() {
+    clearTimeout(this._syncWriteTimer);
+    this._syncWriteTimer = setTimeout(() => this._writeSyncedSettings(), 500);
+  }
+
+  _writeSyncedSettings() {
+    const ts = Date.now();
+    const payload = { aiSafePluginSyncMeta: { updatedAt: ts } };
+    for (const key of SYNCED_SETTING_KEYS) {
+      const value = this.settings[key];
+      if (value === undefined) continue;
+      if (SYNC_CHUNKED_KEYS.includes(key)) {
+        const { chunks, count } = chunkForSync(value);
+        payload[`${key}__count`] = count;
+        chunks.forEach((c, i) => { payload[`${key}__chunk${i}`] = c; });
+      } else {
+        payload[key] = value;
+      }
+    }
+    try {
+      chrome.storage.sync.set(payload, () => { void chrome.runtime.lastError; /* ignore quota/errors */ });
+    } catch { /* sync unavailable — local remains authoritative */ }
+    // Stamp local with the same ts so this device doesn't re-import its own write.
+    chrome.storage.local.set({ aiSafePluginSettingsUpdatedAt: ts });
   }
 
   _safeHttpsUrl(url) {
@@ -1864,6 +1901,7 @@ class SettingsManager {
           this.setMessage('Settings saved.');
         }
       });
+      this.persistSyncedSettings();
     } catch (error) {
       this.setMessage(error.message || 'Invalid settings.', true);
     }
@@ -1872,6 +1910,7 @@ class SettingsManager {
   savePatterns() {
     const customPatterns = this.settings.customPatterns;
     chrome.storage.local.set({ customPatterns }, () => this.setMessage('Patterns saved.'));
+    this.persistSyncedSettings();
   }
 
   addPatternFromForm() {
@@ -1971,6 +2010,7 @@ class SettingsManager {
   saveEntityTypes() {
     const customEntityTypes = this.settings.customEntityTypes || [];
     chrome.storage.local.set({ customEntityTypes }, () => this.setMessage('Custom detectors saved.'));
+    this.persistSyncedSettings();
   }
 
   addEntityTypeFromForm() {

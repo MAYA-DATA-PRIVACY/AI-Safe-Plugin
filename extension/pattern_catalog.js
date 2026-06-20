@@ -341,11 +341,55 @@
     };
   }
 
+  // ── Settings sync (P2) ──
+  // Non-sensitive preference keys that may be mirrored to chrome.storage.sync.
+  // Secrets, ledgers, caches, stats, per-site snoozes, model/server overrides, and
+  // onboarding flags are deliberately excluded and stay local-only.
+  const SYNCED_SETTING_KEYS = Object.freeze([
+    'enabled',
+    'sensitivity',
+    'redactionMode',
+    'autoRedact',
+    'includeRegexWhenModelOnline',
+    'enabledTypes',
+    'customPatterns',
+    'customEntityTypes',
+    'monitorAllSites',
+    'monitoredSites',
+    'monitoredSelectors',
+    'excludedSites'
+  ]);
+
+  // Split a value (JSON-serialised) into ≤maxBytes string chunks so each sync item
+  // stays under chrome.storage.sync's ~8 KB QUOTA_BYTES_PER_ITEM. Pure.
+  function chunkForSync(value, maxBytes = 7000) {
+    const json = JSON.stringify(value ?? null);
+    const size = Math.max(1, Number(maxBytes) || 7000);
+    const chunks = [];
+    for (let i = 0; i < json.length; i += size) {
+      chunks.push(json.slice(i, i + size));
+    }
+    if (chunks.length === 0) chunks.push('');
+    return { chunks, count: chunks.length };
+  }
+
+  // Reassemble chunks produced by chunkForSync back into the original value. Pure.
+  // Returns undefined when parts are missing/invalid.
+  function reassembleChunks(parts) {
+    if (!Array.isArray(parts) || parts.length === 0) return undefined;
+    try {
+      return JSON.parse(parts.join(''));
+    } catch {
+      return undefined;
+    }
+  }
+
   const api = {
     DEFAULT_CUSTOM_PATTERNS,
     LEGACY_OPENAI_KEY_PATTERN,
     PATTERN_NAMES,
     HIGH_RISK_LABELS,
+    SYNCED_SETTING_KEYS,
     cloneDefaultCustomPatterns,
     normalizeCustomPatterns,
     pruneIgnoredByTtl,
@@ -353,7 +397,9 @@
     normalizeSiteHost,
     hostMatchesSite,
     isoWeekKey,
-    mergeRedactionStats
+    mergeRedactionStats,
+    chunkForSync,
+    reassembleChunks
   };
 
   if (typeof module !== 'undefined' && module.exports) {
