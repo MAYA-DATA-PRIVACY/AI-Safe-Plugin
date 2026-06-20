@@ -1190,6 +1190,9 @@ class AiSafePluginContentController {
     if (!badge) {
       badge = document.createElement('div');
       badge.className = 'ps-field-badge';
+      badge.setAttribute('role', 'button');
+      badge.tabIndex = 0;
+      badge.setAttribute('aria-label', 'AI-Safe Plugin');
 
       const monoSvg = this._buildBadgeSvg('ps-badge-svg');
       badge.appendChild(monoSvg);
@@ -1211,6 +1214,14 @@ class AiSafePluginContentController {
       badge.addEventListener('click', (e) => {
         e.stopPropagation();
         this.toggleFieldPanel(element);
+      });
+      // Keyboard activation — Enter/Space open the panel and move focus into it.
+      badge.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.toggleFieldPanel(element, true);
+        }
       });
     }
 
@@ -1290,6 +1301,9 @@ class AiSafePluginContentController {
     // Offline is a modifier on top of the other states: keep the dot visible
     // while scanning/pending/protected so regex-only mode stays discoverable.
     if (this.modelOffline) badge.classList.add('ps-badge-fallback');
+
+    // Mirror the per-state tooltip into the accessible name (U8).
+    badge.setAttribute('aria-label', badge.title || 'AI-Safe Plugin');
   }
 
   positionFieldBadge(element, badge) {
@@ -1394,22 +1408,24 @@ class AiSafePluginContentController {
   // Field Panel
   // ═══════════════════════════════════════════════════════════
 
-  toggleFieldPanel(element) {
+  toggleFieldPanel(element, viaKeyboard = false) {
     const existing = this.fieldPanels.get(element);
     if (existing) {
       this.hideFieldPanel(element);
     } else {
-      this.showFieldPanel(element);
+      this.showFieldPanel(element, viaKeyboard);
     }
   }
 
-  showFieldPanel(element) {
+  showFieldPanel(element, viaKeyboard = false) {
     this.hideFieldPanel(element);
     const state = this.redactions.get(element);
     if (!state || !state.items || state.items.length === 0) return;
 
     const panel = document.createElement('div');
     panel.className = 'ps-field-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'AI-Safe Plugin detections');
 
     // ── Header ──
     const header = document.createElement('div');
@@ -1612,6 +1628,29 @@ class AiSafePluginContentController {
     document.addEventListener('keydown', escHandler, true);
     panel._escHandler = escHandler;
 
+    // ── Focus management (U8) ──
+    // Trap Tab within the panel while it's open.
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const focusables = panel.querySelectorAll('button');
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+    // Only pull focus into the panel when it was opened from the keyboard — a
+    // mouse click must not yank focus out of the text field the user is typing in.
+    if (viaKeyboard) {
+      panel._returnFocus = this.fieldBadges.get(element) || null;
+      requestAnimationFrame(() => panel.querySelector('button')?.focus());
+    }
+
     // Hide token tray while panel is open
     const tray = this.tokenTrays.get(element);
     if (tray) tray.style.display = 'none';
@@ -1658,6 +1697,11 @@ class AiSafePluginContentController {
       if (panel.isConnected) panel.remove();
     }, 200);
     this.fieldPanels.delete(element);
+
+    // Return focus to the badge when the panel was opened from the keyboard (U8).
+    const returnTarget = panel._returnFocus;
+    panel._returnFocus = null;
+    if (returnTarget && typeof returnTarget.focus === 'function') returnTarget.focus();
 
     // Restore token tray visibility
     const tray = this.tokenTrays.get(element);
@@ -3149,6 +3193,7 @@ class AiSafePluginContentController {
       card = document.createElement('div');
       card.className = 'ps-popover';
       card.setAttribute('role', 'dialog');
+      card.setAttribute('aria-label', 'AI-Safe Plugin detection');
       card.addEventListener('mouseenter', () => this.cancelPopoverClose());
       card.addEventListener('mouseleave', (event) => {
         const st = this.activePopoverState;
@@ -3863,6 +3908,8 @@ class AiSafePluginContentController {
       chip.style.setProperty('--chip-color', this.getTypeColor(item.label));
       chip.textContent = this.summarizeTokenText(item.text);
       chip.title = item.redacted ? 'Click to restore' : 'Click to re-redact';
+      // Action + type for screen readers (avoid reading the raw value as the name).
+      chip.setAttribute('aria-label', `${item.redacted ? 'Restore' : 'Re-redact'} ${this.formatLabel(item.label)}`);
       chip.addEventListener('click', () => this.toggleRedaction(element, index));
       tray.appendChild(chip);
     });
@@ -4222,9 +4269,32 @@ class AiSafePluginContentController {
     );
   }
 
+  // Visually-hidden, persistent ARIA live region (U8). Created once; updating its
+  // text makes screen readers announce status changes (e.g. "3 items protected").
+  _ensureAriaLive() {
+    if (this._ariaLive && this._ariaLive.isConnected) return this._ariaLive;
+    const region = document.createElement('div');
+    region.className = 'ps-sr-only';
+    region.setAttribute('role', 'status');
+    region.setAttribute('aria-live', 'polite');
+    document.body.appendChild(region);
+    this._ariaLive = region;
+    return region;
+  }
+
+  announce(message) {
+    const region = this._ensureAriaLive();
+    region.textContent = '';
+    // Re-set on the next frame so repeated identical messages still announce.
+    requestAnimationFrame(() => { region.textContent = String(message || ''); });
+  }
+
   showNotification(message, type = 'info', durationMs = 1900) {
     const toast = document.createElement('div');
     toast.className = `ps-notification ps-notification-${type}`;
+    // The toast is purely visual; the persistent live region does the announcing
+    // (below), so screen readers hear it exactly once.
+    toast.setAttribute('aria-hidden', 'true');
     const inner = document.createElement('div');
     inner.className = 'ps-notification-message';
     inner.textContent = message;
@@ -4232,6 +4302,8 @@ class AiSafePluginContentController {
 
     document.body.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('ps-notification-visible'));
+
+    this.announce(message);
 
     setTimeout(() => {
       toast.classList.remove('ps-notification-visible');

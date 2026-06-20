@@ -1147,3 +1147,111 @@ test.describe('Toolbar Badge (U1)', () => {
         await page.close();
     });
 });
+
+test.describe('Accessibility (U8)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('badge is a keyboard-operable button that opens the panel; Escape closes and returns focus', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await expect(badge).toHaveAttribute('role', 'button');
+        await expect(badge).toHaveAttribute('aria-label', /need attention/);
+
+        // Keyboard open.
+        await badge.focus();
+        await page.keyboard.press('Enter');
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await expect(panel).toHaveAttribute('role', 'dialog');
+
+        // Escape closes and focus returns to the badge.
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.ps-field-panel.ps-panel-visible')).toBeHidden({ timeout: 3000 });
+        const focusedIsBadge = await page.evaluate(() =>
+            document.activeElement?.classList?.contains('ps-field-badge') === true);
+        expect(focusedIsBadge).toBe(true);
+
+        await page.close();
+    });
+
+    test('redact-all is announced via an aria-live region', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+
+        const live = page.locator('[role="status"][aria-live="polite"]');
+        await expect.poll(async () => (await live.textContent()) || '', { timeout: 5000 }).toMatch(/protected/);
+
+        await page.close();
+    });
+
+    test('token tray chips expose an action+type aria-label', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+        await page.keyboard.press('Escape');
+
+        const chip = page.locator('.ps-token-chip').first();
+        await expect(chip).toHaveAttribute('aria-label', /Restore|Re-redact/, { timeout: 5000 });
+
+        await page.close();
+    });
+});
