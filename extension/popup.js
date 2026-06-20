@@ -5,7 +5,8 @@ const {
   PATTERN_NAMES,
   cloneDefaultCustomPatterns,
   normalizeCustomPatterns,
-  normalizeSiteHost
+  normalizeSiteHost,
+  isoWeekKey
 } = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
 const DEFAULT_SERVER_MODEL = 'fastino/gliner2-large-v1';
 const SITE_SNOOZE_MS = 60 * 60 * 1000;
@@ -566,6 +567,7 @@ class SettingsManager {
 
     this.renderStatus();
     this.renderStats();
+    this.renderPrivacyStats();
     this.renderAdvancedStates();
     this.renderModeSummary();
     this.renderRegexRuntimeState();
@@ -685,6 +687,34 @@ class SettingsManager {
   renderStats() {
     document.getElementById('detectionCount').textContent = this.formatNumber(this.stats.detections);
     document.getElementById('redactionCount').textContent = this.formatNumber(this.stats.redactions);
+  }
+
+  // U7: durable "what AI-Safe Plugin saved you" card (options About). Counts only.
+  renderPrivacyStats() {
+    const totalEl = document.getElementById('statTotalProtected');
+    if (!totalEl) return; // only present on the options page
+    chrome.storage.local.get(['aiSafePluginStats'], (data) => {
+      const stats = data?.aiSafePluginStats || {};
+      const byLabel = stats.byLabel || {};
+      const byWeek = stats.byWeek || {};
+      totalEl.textContent = this.formatNumber(Number(stats.totalProtected) || 0);
+
+      const weekEl = document.getElementById('statThisWeek');
+      if (weekEl) weekEl.textContent = this.formatNumber(Number(byWeek[isoWeekKey()]) || 0);
+
+      const topEl = document.getElementById('statTopTypes');
+      if (topEl) {
+        const top = Object.entries(byLabel)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([label, n]) => `${this._prettyLabel(label)} (${this.formatNumber(n)})`);
+        topEl.textContent = top.length ? top.join(', ') : '—';
+      }
+    });
+  }
+
+  _prettyLabel(label) {
+    return String(label || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
 
   renderAdvancedStates() {

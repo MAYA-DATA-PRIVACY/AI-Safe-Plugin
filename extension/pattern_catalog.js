@@ -311,6 +311,36 @@
     return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
   }
 
+  // ── Local privacy stats (U7) ──
+  // ISO-8601 week key "YYYY-Www" (weeks start Monday; week 1 contains the first
+  // Thursday of the year). Used to bucket durable redaction counts by week.
+  function isoWeekKey(date = new Date()) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    // Thursday in the current week decides the year.
+    const day = d.getUTCDay() || 7; // Sunday → 7
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+  }
+
+  // Fold a redaction event into a stats object, returning a NEW object (pure).
+  // Counts only — never values or sites.
+  function mergeRedactionStats(stats, label, weekKey, n = 1) {
+    const inc = Number(n) || 0;
+    const base = (stats && typeof stats === 'object') ? stats : {};
+    const byLabel = { ...(base.byLabel || {}) };
+    const byWeek = { ...(base.byWeek || {}) };
+    const labelKey = String(label || 'unknown');
+    byLabel[labelKey] = (Number(byLabel[labelKey]) || 0) + inc;
+    if (weekKey) byWeek[weekKey] = (Number(byWeek[weekKey]) || 0) + inc;
+    return {
+      totalProtected: (Number(base.totalProtected) || 0) + inc,
+      byLabel,
+      byWeek
+    };
+  }
+
   const api = {
     DEFAULT_CUSTOM_PATTERNS,
     LEGACY_OPENAI_KEY_PATTERN,
@@ -321,7 +351,9 @@
     pruneIgnoredByTtl,
     capFifo,
     normalizeSiteHost,
-    hostMatchesSite
+    hostMatchesSite,
+    isoWeekKey,
+    mergeRedactionStats
   };
 
   if (typeof module !== 'undefined' && module.exports) {

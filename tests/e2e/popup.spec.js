@@ -533,6 +533,7 @@ test.describe('Delete all AI-Safe Plugin data', () => {
         await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({
             aiSafePluginApiKey: 'fake-secret-key',
             'ai_safe_plugin::aliases::example.com': { aliases: { person: 'Alias_1' }, updatedAt: Date.now() },
+            aiSafePluginStats: { totalProtected: 5, byLabel: { person: 5 }, byWeek: { '2026-W25': 5 } },
         }, resolve)));
 
         const before = await page.evaluate(() =>
@@ -554,6 +555,7 @@ test.describe('Delete all AI-Safe Plugin data', () => {
 
         expect(after.aiSafePluginApiKey).toBeUndefined();
         expect(after['ai_safe_plugin::aliases::example.com']).toBeUndefined();
+        expect(after.aiSafePluginStats).toBeUndefined();
         // Defaults are re-seeded after the wipe.
         expect(after.enabled).toBe(true);
     });

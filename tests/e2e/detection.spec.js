@@ -1295,3 +1295,64 @@ test.describe('First-run Playground (U6)', () => {
         await page.close();
     });
 });
+
+test.describe('Local Privacy Stats (U7)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('redacting accumulates durable privacy stats (counts only)', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+
+        // Durable stats are written (debounced) under aiSafePluginStats. Read from an
+        // extension page since chrome.storage isn't exposed to the content page's world.
+        const readStats = () => withExtensionPage(context, extensionId, (p) => p.evaluate(() =>
+            new Promise((r) => chrome.storage.local.get('aiSafePluginStats', (d) => r(d.aiSafePluginStats || null)))));
+
+        await expect.poll(async () => (await readStats())?.totalProtected || 0, { timeout: 8000 })
+            .toBeGreaterThanOrEqual(1);
+
+        const stats = await readStats();
+        expect(Object.keys(stats.byLabel || {}).length).toBeGreaterThanOrEqual(1);
+        expect(Object.keys(stats.byWeek || {}).length).toBeGreaterThanOrEqual(1);
+        // Counts only — the stats object must not carry values or sites.
+        expect(Object.keys(stats).sort()).toEqual(['byLabel', 'byWeek', 'totalProtected']);
+
+        await page.close();
+    });
+});

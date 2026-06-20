@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a local "Your privacy impact" summary in the options About section: a durable, privacy-safe tally of how many items you've protected in total, this week, and your top detection types. Counts only — it never stores the protected values or the sites you used — and the "Delete all data" control clears it.
 - Added a first-run interactive playground: a built-in "try it" page (linked from the end of onboarding and the options About section) where new users can insert synthetic sample text and watch AI-Safe Plugin detect, underline, and redact it — using the real in-page engine, without visiting any third-party site and without sending anything anywhere.
 - Accessibility pass on the in-page UI: the field badge is now a keyboard-operable button (Tab to it, Enter/Space opens the panel) with a screen-reader label that reflects its state; the detection panel is a focus-trapped dialog that closes on Escape and returns focus to the badge; status changes like "N items protected" are announced through an ARIA live region; toasts and token-tray chips carry proper roles/labels; and all animation continues to respect the reduced-motion setting.
 - Added keyboard shortcuts: `Alt+Shift+R` redacts all detections in the focused field, and `Alt+Shift+V` toggles AI-Safe Plugin off/on for the current site using the per-site exclude list.

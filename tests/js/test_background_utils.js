@@ -15,6 +15,8 @@ const {
   capFifo,
   normalizeSiteHost,
   hostMatchesSite,
+  isoWeekKey,
+  mergeRedactionStats,
 } = require('../../extension/pattern_catalog.js');
 const {
   REGEX_SMOKE_TEXT,
@@ -537,6 +539,32 @@ section('ignored-values helpers (U3)');
   assertEqual(HIGH_RISK_LABELS.includes('api_key'), true, 'HIGH_RISK_LABELS excludes api_key from ignoring');
   assertEqual(HIGH_RISK_LABELS.includes('ssn'), true, 'HIGH_RISK_LABELS excludes ssn from ignoring');
   assertEqual(HIGH_RISK_LABELS.includes('person'), false, 'HIGH_RISK_LABELS allows ordinary labels like person');
+}
+
+section('privacy stats helpers (U7)');
+{
+  // isoWeekKey — known ISO-8601 boundaries (local-date input).
+  assertEqual(isoWeekKey(new Date(2026, 0, 1)), '2026-W01', 'Jan 1 2026 is ISO week 1');
+  assertEqual(isoWeekKey(new Date(2026, 5, 21)), '2026-W25', 'Jun 21 2026 is ISO week 25');
+  assertEqual(isoWeekKey(new Date(2021, 0, 1)), '2020-W53', 'Jan 1 2021 belongs to ISO week 53 of 2020');
+
+  // mergeRedactionStats — folds an event into a new object, immutably.
+  const s0 = mergeRedactionStats(undefined, 'email', '2026-W25');
+  assertEqual(s0, { totalProtected: 1, byLabel: { email: 1 }, byWeek: { '2026-W25': 1 } }, 'merge into empty stats seeds counters');
+
+  const s1 = mergeRedactionStats(s0, 'email', '2026-W25');
+  assertEqual(s1.totalProtected, 2, 'merge increments total');
+  assertEqual(s1.byLabel.email, 2, 'merge increments per-label');
+  assertEqual(s1.byWeek['2026-W25'], 2, 'merge increments per-week');
+  assertEqual(s0.totalProtected, 1, 'merge does not mutate the input (immutability)');
+
+  const s2 = mergeRedactionStats(s1, 'person', '2026-W26');
+  assertEqual(s2.totalProtected, 3, 'second label adds to total');
+  assertEqual(s2.byLabel.person, 1, 'new label tracked separately');
+  assertEqual(s2.byWeek['2026-W26'], 1, 'new week tracked separately');
+
+  // Counts only — no value/site fields ever appear.
+  assertEqual(Object.keys(s2).sort(), ['byLabel', 'byWeek', 'totalProtected'], 'stats object only holds count buckets');
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

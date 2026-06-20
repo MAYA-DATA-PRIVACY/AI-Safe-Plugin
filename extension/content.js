@@ -8,8 +8,12 @@ const {
   pruneIgnoredByTtl,
   capFifo,
   normalizeSiteHost,
-  hostMatchesSite
+  hostMatchesSite,
+  isoWeekKey,
+  mergeRedactionStats
 } = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
+
+const STATS_STORAGE_KEY = 'aiSafePluginStats';
 
 const IGNORED_VALUES_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const IGNORED_VALUES_MAX_PER_SITE = 200;
@@ -2505,6 +2509,7 @@ class AiSafePluginContentController {
         item.reviewed = true;
         changed = true;
         count += 1;
+        this._recordRedactionStat(item.label);
       }
     });
 
@@ -3812,9 +3817,11 @@ class AiSafePluginContentController {
     const state = this.redactions.get(element);
     if (!state || !state.items[index]) return;
 
+    const wasRedacted = state.items[index].redacted;
     state.items[index].redacted = true;
     state.items[index].reviewed = true;
     state.items[index].userRestored = false;  // User chose to re-redact
+    if (!wasRedacted) this._recordRedactionStat(state.items[index].label);
 
     this.rememberResponseRestoreMappings(state);
     this.renderElement(element, index);
@@ -3875,6 +3882,7 @@ class AiSafePluginContentController {
       this.cancelAutoRedact(element);
     } else {
       this.rememberResponseRestoreMappings(state);
+      this._recordRedactionStat(state.items[index].label);
     }
 
     this.renderElement(element, index);
@@ -4149,6 +4157,38 @@ class AiSafePluginContentController {
       detections: this.pageStats.detections + (Number(detections) || 0),
       redactions: this.pageStats.redactions + (Number(redactions) || 0)
     };
+  }
+
+  // ── Durable privacy stats (U7) ────────────────────────────────────────────
+  // Accumulate redaction counts in memory and flush them (debounced) into
+  // chrome.storage.local under STATS_STORAGE_KEY. Counts only — never the
+  // detected value or the site. A redactAll burst becomes a single write.
+  _recordRedactionStat(label, n = 1) {
+    const inc = Number(n) || 0;
+    if (inc <= 0) return;
+    if (!this._statDeltas) this._statDeltas = { total: 0, byLabel: {} };
+    const key = String(label || 'unknown');
+    this._statDeltas.total += inc;
+    this._statDeltas.byLabel[key] = (this._statDeltas.byLabel[key] || 0) + inc;
+
+    clearTimeout(this._statFlushTimer);
+    this._statFlushTimer = setTimeout(() => this._flushRedactionStats(), 800);
+  }
+
+  _flushRedactionStats() {
+    const deltas = this._statDeltas;
+    if (!deltas || deltas.total <= 0) return;
+    this._statDeltas = { total: 0, byLabel: {} };
+    const weekKey = isoWeekKey();
+    try {
+      chrome.storage.local.get([STATS_STORAGE_KEY], (data) => {
+        let stats = data?.[STATS_STORAGE_KEY];
+        for (const [label, count] of Object.entries(deltas.byLabel)) {
+          stats = mergeRedactionStats(stats, label, weekKey, count);
+        }
+        chrome.storage.local.set({ [STATS_STORAGE_KEY]: stats });
+      });
+    } catch { /* context invalidated — non-fatal */ }
   }
 
   computeLiveStats() {
