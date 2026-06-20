@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Brought back the hover popover on detection underlines: hovering an unredacted detection now shows a small card with the detection type, a one-line explanation of why it matters, and Redact / Dismiss actions — so the colored underlines are self-explanatory. The card works on rich-editor (ChatGPT/Gemini/Claude-style) fields, closes on Escape or pointer-out, and respects reduced-motion.
+- Added a persistent per-site "Ignore on this site" action (on the hover popover and the field panel) so Veil stops flagging values you've marked as safe — and remembers them across reloads. Ignored values are stored per site, expire after 90 days, and can be reviewed or removed from the new "Ignored Values" card in the options page. High-risk types (cards, SSNs, API keys, JWTs, private keys, connection strings, Aadhaar) can never be ignored.
 - Added a "Delete all Veil data" control in the Advanced settings. A two-click confirm fully clears all browser-local Veil data — settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats — then restores defaults.
 - Published the Veil privacy policy at `docs/PRIVACY_POLICY.md`, linked from the extension's About section and the README.
 

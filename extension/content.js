@@ -3,8 +3,14 @@
 
 const {
   cloneDefaultCustomPatterns,
-  normalizeCustomPatterns
+  normalizeCustomPatterns,
+  HIGH_RISK_LABELS,
+  pruneIgnoredByTtl,
+  capFifo
 } = globalThis.VEIL_PATTERN_CATALOG;
+
+const IGNORED_VALUES_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const IGNORED_VALUES_MAX_PER_SITE = 200;
 
 const DEFAULT_MONITORED_SELECTORS = [
   'textarea',
@@ -187,6 +193,10 @@ class VeilContentController {
     // on the same site. Loaded from chrome.storage on init, 30-day TTL.
     this.siteAliasCache = { aliases: {}, counters: {}, maskCounters: {} };
     this.siteAliasPersistTimer = null;
+    // Per-site "ignore this value" allowlist (U3). label → Set<value>.
+    this.siteIgnoredValues = new Map();
+    this._siteIgnoredEntries = [];
+    this._siteIgnoredPersistTimer = null;
     this.responseRestoreLedger = new Map();
     this.responseRestoreTimer = 0;
 
@@ -258,6 +268,7 @@ class VeilContentController {
     // Load per-site alias ledger before starting monitoring so that the first
     // element to trigger detection already has the correct counter seed.
     await this.loadSiteAliasLedger();
+    await this.loadSiteIgnoredValues();
     this.startMonitoring();
 
     // Rehydrate cached redactions
@@ -1455,6 +1466,24 @@ class VeilContentController {
       }
       actions.appendChild(redactBtn);
 
+      // Ignore on this site — omitted for high-risk labels (U3).
+      if (!item.redacted && this.canIgnoreLabel(item.label)) {
+        const ignoreBtn = document.createElement('button');
+        ignoreBtn.type = 'button';
+        ignoreBtn.className = 'ps-panel-row-btn';
+        ignoreBtn.title = 'Ignore on this site';
+        ignoreBtn.setAttribute('aria-label', `Ignore ${this.formatLabel(item.label)} on this site`);
+        ignoreBtn.appendChild(this._buildIgnoreSvg());
+        ignoreBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.ignoreDetectionValue(element, index);
+          this.hideFieldPanel(element);
+          const newState = this.redactions.get(element);
+          if (newState && newState.items.length > 0) this.showFieldPanel(element);
+        });
+        actions.appendChild(ignoreBtn);
+      }
+
       row.appendChild(actions);
       itemList.appendChild(row);
     });
@@ -1627,6 +1656,29 @@ class VeilContentController {
     return svg;
   }
 
+  _buildIgnoreSvg() {
+    // Crossed-eye "ignore/hide" glyph.
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.3');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    const eye = document.createElementNS(ns, 'path');
+    eye.setAttribute('d', 'M1.5 6 C3 3.5 9 3.5 10.5 6 C9 8.5 3 8.5 1.5 6 Z');
+    svg.appendChild(eye);
+    const slash = document.createElementNS(ns, 'line');
+    slash.setAttribute('x1', '2'); slash.setAttribute('y1', '10');
+    slash.setAttribute('x2', '10'); slash.setAttribute('y2', '2');
+    svg.appendChild(slash);
+    return svg;
+  }
+
   _buildRestoreSvg() {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -1701,7 +1753,9 @@ class VeilContentController {
       return false;
     }
 
-    const detections = response.detections.filter((item) => !this.isSyntheticReplacementToken(item.text));
+    const detections = response.detections
+      .filter((item) => !this.isSyntheticReplacementToken(item.text))
+      .filter((item) => !this.isValueIgnored(item.label, item.text)); // per-site ignore (U3)
     if (detections.length === 0) return false;
 
     const ledger = this.getAliasLedger(element);
@@ -1820,11 +1874,13 @@ class VeilContentController {
 
       let detections = response.detections;
 
-      // ── Dedup: filter out dismissed and already-handled detections ──
+      // ── Dedup: filter out dismissed, ignored, and already-handled detections ──
       const dismissed = this.dismissedDetections.get(element) || new Set();
       detections = detections.filter((d) => {
         const key = `${d.start}:${d.end}:${d.label}`;
-        return !dismissed.has(key);
+        if (dismissed.has(key)) return false;
+        if (this.isValueIgnored(d.label, d.text)) return false; // persistent per-site ignore (U3)
+        return true;
       });
       detections = detections.filter((d) => !this.isSyntheticReplacementToken(d.text));
 
@@ -3079,6 +3135,22 @@ class VeilContentController {
     });
     actions.appendChild(dismissBtn);
 
+    // Ignore on this site — omitted for high-risk labels (U3).
+    if (this.canIgnoreLabel(item.label)) {
+      const ignoreBtn = document.createElement('button');
+      ignoreBtn.type = 'button';
+      ignoreBtn.className = 'ps-popover-btn ps-popover-btn-dismiss';
+      ignoreBtn.textContent = 'Ignore here';
+      ignoreBtn.setAttribute('aria-label', `Ignore ${this.formatLabel(item.label)} on this site`);
+      ignoreBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.ignoreDetectionValue(element, itemIndex);
+        this.hidePopover();
+      });
+      actions.appendChild(ignoreBtn);
+    }
+
     card.appendChild(actions);
 
     this.positionPopover(anchorRect);
@@ -4170,6 +4242,74 @@ class VeilContentController {
         [key]: { ...this.siteAliasCache, updatedAt: Date.now() }
       });
     }, 1000);
+  }
+
+  // ── Persistent per-site ignore list (U3) ──────────────────────────────────
+  // Values the user chose to "Ignore on this site" so Veil stops flagging them
+  // across reloads. Stored per host with a 90-day TTL and FIFO cap.
+
+  getSiteIgnoredKey() {
+    return `veil::ignored::${location.hostname}`;
+  }
+
+  async loadSiteIgnoredValues() {
+    this.siteIgnoredValues = new Map(); // label → Set<value> (exact, trimmed)
+    this._siteIgnoredEntries = [];      // [{ value, label, addedAt }] (load-prune-persist)
+    const key = this.getSiteIgnoredKey();
+    try {
+      const data = await new Promise((resolve) => chrome.storage.local.get([key], resolve));
+      const stored = data[key];
+      let entries = Array.isArray(stored?.entries) ? stored.entries : [];
+      const before = entries.length;
+      entries = capFifo(pruneIgnoredByTtl(entries, IGNORED_VALUES_TTL_MS), IGNORED_VALUES_MAX_PER_SITE);
+      this._siteIgnoredEntries = entries;
+      for (const e of entries) {
+        if (!e || typeof e.value !== 'string' || typeof e.label !== 'string') continue;
+        this._addToIgnoredMap(e.label, e.value);
+      }
+      if (entries.length !== before) this.persistSiteIgnoredValues(); // write back the prune
+    } catch { /* non-fatal */ }
+  }
+
+  _addToIgnoredMap(label, value) {
+    const v = String(value || '').trim();
+    if (!v) return;
+    if (!this.siteIgnoredValues.has(label)) this.siteIgnoredValues.set(label, new Set());
+    this.siteIgnoredValues.get(label).add(v);
+  }
+
+  isValueIgnored(label, text) {
+    const set = this.siteIgnoredValues?.get(label);
+    return Boolean(set && set.has(String(text || '').trim()));
+  }
+
+  persistSiteIgnoredValues() {
+    clearTimeout(this._siteIgnoredPersistTimer);
+    this._siteIgnoredPersistTimer = setTimeout(() => {
+      const key = this.getSiteIgnoredKey();
+      chrome.storage.local.set({
+        [key]: { entries: this._siteIgnoredEntries, updatedAt: Date.now() }
+      });
+    }, 600);
+  }
+
+  // Add a detection's (label, value) to the per-site ignore list, then dismiss it.
+  // High-risk labels are never ignorable.
+  ignoreDetectionValue(element, index) {
+    const item = this.redactions.get(element)?.items?.[index];
+    if (!item || HIGH_RISK_LABELS.includes(item.label)) return;
+    const value = String(item.text || '').trim();
+    if (value && !this.isValueIgnored(item.label, value)) {
+      this._addToIgnoredMap(item.label, value);
+      this._siteIgnoredEntries.push({ value, label: item.label, addedAt: Date.now() });
+      this._siteIgnoredEntries = capFifo(this._siteIgnoredEntries, IGNORED_VALUES_MAX_PER_SITE);
+      this.persistSiteIgnoredValues();
+    }
+    this.dismissDetection(element, index);
+  }
+
+  canIgnoreLabel(label) {
+    return !HIGH_RISK_LABELS.includes(label);
   }
 
   // Build the popup/settings redaction key from currently active Veil states only.

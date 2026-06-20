@@ -10,6 +10,9 @@ const {
   cloneDefaultCustomPatterns,
   normalizeCustomPatterns,
   PATTERN_NAMES,
+  HIGH_RISK_LABELS,
+  pruneIgnoredByTtl,
+  capFifo,
 } = require('../../extension/pattern_catalog.js');
 const {
   REGEX_SMOKE_TEXT,
@@ -523,6 +526,32 @@ section('assistant response restore — static redaction tokens are not ledger k
   assertEqual(isStaticRedactionToken('[EMAIL REDACTED]'), true, 'plain static mask token is recognized');
   assertEqual(isStaticRedactionToken('[NAME_1 REDACTED]'), true, 'indexed static mask token is recognized');
   assertEqual(isStaticRedactionToken('Alexandra Aisha'), false, 'natural anonymized replacement is still eligible');
+}
+
+section('ignored-values helpers (U3)');
+{
+  const now = 1_000_000_000_000;
+  const day = 24 * 60 * 60 * 1000;
+  const ttl = 90 * day;
+  const entries = [
+    { value: 'Acme', label: 'organization', addedAt: now - (100 * day) }, // expired
+    { value: 'Globex', label: 'organization', addedAt: now - (10 * day) }, // fresh
+    { value: 'NoTimestamp', label: 'organization' }, // invalid → dropped
+  ];
+  const pruned = pruneIgnoredByTtl(entries, ttl, now);
+  assertEqual(pruned.map((e) => e.value), ['Globex'], 'pruneIgnoredByTtl drops expired and timestamp-less entries');
+  assertEqual(pruneIgnoredByTtl(null, ttl, now), [], 'pruneIgnoredByTtl tolerates non-array input');
+
+  const many = Array.from({ length: 205 }, (_, i) => ({ value: `v${i}`, label: 'organization', addedAt: now + i }));
+  const capped = capFifo(many, 200);
+  assertEqual(capped.length, 200, 'capFifo caps at the limit');
+  assertEqual(capped[0].value, 'v5', 'capFifo evicts the oldest entries from the front');
+  assertEqual(capped[capped.length - 1].value, 'v204', 'capFifo keeps the newest entry');
+  assertEqual(capFifo([{ value: 'a', label: 'x', addedAt: now }], 200).length, 1, 'capFifo is a no-op below the limit');
+
+  assertEqual(HIGH_RISK_LABELS.includes('api_key'), true, 'HIGH_RISK_LABELS excludes api_key from ignoring');
+  assertEqual(HIGH_RISK_LABELS.includes('ssn'), true, 'HIGH_RISK_LABELS excludes ssn from ignoring');
+  assertEqual(HIGH_RISK_LABELS.includes('person'), false, 'HIGH_RISK_LABELS allows ordinary labels like person');
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

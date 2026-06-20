@@ -271,12 +271,36 @@
     return [...mergedDefaults, ...extras, ...customOnly];
   }
 
+  // Labels too dangerous to ever add to a per-site "ignore" allowlist (U3). The
+  // Ignore action is not offered for these — silently allowlisting a secret would
+  // be a footgun.
+  const HIGH_RISK_LABELS = Object.freeze([
+    'ssn', 'credit_card', 'private_key', 'api_key', 'jwt', 'connection_string', 'aadhaar'
+  ]);
+
+  // Drop ignored-value entries older than ttlMs. Pure: returns a new array.
+  function pruneIgnoredByTtl(entries, ttlMs, now = Date.now()) {
+    if (!Array.isArray(entries)) return [];
+    const cutoff = now - Number(ttlMs);
+    return entries.filter((e) => e && typeof e.addedAt === 'number' && e.addedAt >= cutoff);
+  }
+
+  // Keep at most `max` entries, evicting the oldest (FIFO) from the front. Pure.
+  function capFifo(entries, max) {
+    if (!Array.isArray(entries)) return [];
+    const limit = Math.max(0, Number(max) || 0);
+    return entries.length <= limit ? entries.slice() : entries.slice(entries.length - limit);
+  }
+
   const api = {
     DEFAULT_CUSTOM_PATTERNS,
     LEGACY_OPENAI_KEY_PATTERN,
     PATTERN_NAMES,
+    HIGH_RISK_LABELS,
     cloneDefaultCustomPatterns,
-    normalizeCustomPatterns
+    normalizeCustomPatterns,
+    pruneIgnoredByTtl,
+    capFifo
   };
 
   if (typeof module !== 'undefined' && module.exports) {

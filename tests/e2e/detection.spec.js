@@ -843,3 +843,96 @@ test.describe('Detection Popover (U2)', () => {
         await page.close();
     });
 });
+
+test.describe('Persistent Ignore List (U3)', () => {
+    let mockServer;
+    const ONLINE_HOSTILE_SCROLL_URL = `${MOCK_SERVER_URL}${HOSTILE_SCROLL_PAGE_PATH}`;
+
+    function startWithDetections(detectFn) {
+        return startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: detectFn(String(payload.text || '')) } };
+                },
+            },
+        });
+    }
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('an ignored value stays ignored after reload', async ({ extensionContext }) => {
+        mockServer = await startWithDetections(buildMockDetectionsForText);
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(ONLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('My name is Jane Doe');
+
+        // Hover the underline → popover → "Ignore here".
+        const underline = page.locator('.ps-overlay-hl.ps-overlay-hl-underline').first();
+        await expect(underline).toBeVisible({ timeout: 8000 });
+        await underline.hover();
+        const popover = page.locator('.ps-popover.ps-popover-visible');
+        await expect(popover).toBeVisible({ timeout: 3000 });
+        await popover.getByRole('button', { name: /Ignore/ }).click();
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-underline')).toHaveCount(0, { timeout: 3000 });
+
+        // Reload and retype the same value — it must not be flagged again.
+        await page.reload();
+        await page.waitForLoadState('domcontentloaded');
+        const editor2 = page.locator('#hostileEditor');
+        await editor2.click();
+        await page.keyboard.insertText('My name is Jane Doe');
+        await page.waitForTimeout(3000);
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-underline')).toHaveCount(0);
+
+        await page.close();
+    });
+
+    test('high-risk labels do not offer an Ignore action', async ({ extensionContext }) => {
+        const ssnDetect = (text) => {
+            const token = '123-45-6789';
+            const start = text.indexOf(token);
+            if (start === -1) return [];
+            return [{ text: token, label: 'ssn', start, end: start + token.length, score: 0.97, source: 'gliner2' }];
+        };
+        mockServer = await startWithDetections(ssnDetect);
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(ONLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('My SSN is 123-45-6789');
+
+        const underline = page.locator('.ps-overlay-hl.ps-overlay-hl-underline').first();
+        await expect(underline).toBeVisible({ timeout: 8000 });
+        await underline.hover();
+        const popover = page.locator('.ps-popover.ps-popover-visible');
+        await expect(popover).toBeVisible({ timeout: 3000 });
+
+        // Dismiss is present, but Ignore is not offered for high-risk labels.
+        await expect(popover.getByRole('button', { name: /Dismiss/ })).toBeVisible();
+        await expect(popover.getByRole('button', { name: /Ignore/ })).toHaveCount(0);
+
+        await page.close();
+    });
+});

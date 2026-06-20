@@ -334,6 +334,7 @@ class SettingsManager {
       });
     });
 
+    document.getElementById('clearIgnoredValuesButton')?.addEventListener('click', () => this.clearAllIgnoredValues());
     document.getElementById('saveAdvancedButton').addEventListener('click', () => this.saveAdvancedConfig(true));
     document.getElementById('loadDefaultsButton').addEventListener('click', () => {
       this.settings.customPatterns = cloneDefaultCustomPatterns();
@@ -475,6 +476,7 @@ class SettingsManager {
     if (modelSelect) modelSelect.value = this.selectedModel;
     this.renderPatternCards();
     this.renderEntityTypeCards();
+    this.renderIgnoredValuesCard();
     this.renderAnonymizeAvailability();
     this.renderApiKeyState();
 
@@ -1816,6 +1818,101 @@ class SettingsManager {
         this.saveEntityTypes();
       });
     });
+  }
+
+  // ── Ignored values (U3): persistent per-site allowlist stored under
+  //    `veil::ignored::<host>` keys, managed here. ──
+  static IGNORED_KEY_PREFIX = 'veil::ignored::';
+
+  async _readIgnoredValuesBySite() {
+    const all = await new Promise((resolve) => chrome.storage.local.get(null, resolve));
+    const bySite = {};
+    for (const [key, val] of Object.entries(all || {})) {
+      if (!key.startsWith(SettingsManager.IGNORED_KEY_PREFIX)) continue;
+      const host = key.slice(SettingsManager.IGNORED_KEY_PREFIX.length);
+      const entries = Array.isArray(val?.entries) ? val.entries : [];
+      if (entries.length) bySite[host] = entries;
+    }
+    return bySite;
+  }
+
+  async renderIgnoredValuesCard() {
+    const list = document.getElementById('ignoredValuesList');
+    if (!list) return;
+    const bySite = await this._readIgnoredValuesBySite();
+    const hosts = Object.keys(bySite).sort();
+
+    list.textContent = '';
+    if (hosts.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.style.cssText = 'text-align:center;padding:8px 0';
+      empty.textContent = 'No ignored values. Use "Ignore on this site" on a detection to add one.';
+      list.appendChild(empty);
+      return;
+    }
+
+    for (const host of hosts) {
+      const group = document.createElement('div');
+      group.className = 'ignored-site-group';
+
+      const heading = document.createElement('div');
+      heading.className = 'ignored-site-host';
+      heading.textContent = host;
+      group.appendChild(heading);
+
+      bySite[host].forEach((entry, index) => {
+        const row = document.createElement('div');
+        row.className = 'pattern-card';
+
+        const body = document.createElement('div');
+        body.className = 'pattern-card-body';
+        const name = document.createElement('span');
+        name.className = 'pattern-card-name';
+        name.textContent = entry.value;
+        const preview = document.createElement('code');
+        preview.className = 'pattern-card-preview';
+        preview.textContent = String(entry.label || '').replace(/_/g, ' ');
+        body.appendChild(name);
+        body.appendChild(preview);
+        row.appendChild(body);
+
+        const del = document.createElement('button');
+        del.className = 'entity-del ghost compact';
+        del.setAttribute('aria-label', 'Remove');
+        del.title = 'Remove';
+        del.textContent = '✕';
+        del.addEventListener('click', () => this.removeIgnoredValue(host, index));
+        row.appendChild(del);
+
+        group.appendChild(row);
+      });
+
+      list.appendChild(group);
+    }
+  }
+
+  async removeIgnoredValue(host, index) {
+    const key = SettingsManager.IGNORED_KEY_PREFIX + host;
+    const stored = await new Promise((resolve) => chrome.storage.local.get([key], resolve));
+    const entries = Array.isArray(stored[key]?.entries) ? stored[key].entries.slice() : [];
+    if (index < 0 || index >= entries.length) return;
+    entries.splice(index, 1);
+    if (entries.length === 0) {
+      await new Promise((resolve) => chrome.storage.local.remove(key, resolve));
+    } else {
+      await new Promise((resolve) => chrome.storage.local.set({ [key]: { entries, updatedAt: Date.now() } }, resolve));
+    }
+    this.renderIgnoredValuesCard();
+  }
+
+  async clearAllIgnoredValues() {
+    const bySite = await this._readIgnoredValuesBySite();
+    const keys = Object.keys(bySite).map((h) => SettingsManager.IGNORED_KEY_PREFIX + h);
+    if (keys.length === 0) return;
+    await new Promise((resolve) => chrome.storage.local.remove(keys, resolve));
+    this.renderIgnoredValuesCard();
+    this.setMessage('Cleared all ignored values.');
   }
 
   async resetDefaults() {

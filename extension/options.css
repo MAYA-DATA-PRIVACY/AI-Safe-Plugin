@@ -1286,6 +1286,13 @@ a.diag-value { color: var(--md-primary) !important; }
   font-weight: 500 !important;
   color: var(--md-on-surface) !important;
 }
+.ignored-site-group { margin-bottom: 10px; }
+.ignored-site-host {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  margin: 6px 2px 4px;
+}
 .pattern-card-preview {
   font-size: 13px !important;
   color: var(--md-on-surface-variant) !important;
