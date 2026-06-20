@@ -1356,3 +1356,51 @@ test.describe('Local Privacy Stats (U7)', () => {
         await page.close();
     });
 });
+
+test.describe('Lazy Initialization (P1)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('generic page injects nothing until a field is focused, then detects', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        // Give init() time to run loadSettings + arm; it must NOT boot yet.
+        await page.waitForTimeout(1000);
+        expect(await page.locator('#privacy-shield-overlay').count()).toBe(0);
+
+        // First focus of the monitored field triggers the full boot.
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        await expect(page.locator('#privacy-shield-overlay')).toBeAttached({ timeout: 8000 });
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        await page.close();
+    });
+});

@@ -255,7 +255,52 @@ class AiSafePluginContentController {
     if (!this.settings.enabled) return;
     if (!this.isSiteMonitored()) return;
 
-    await this.activateMonitoring('init');
+    // P1 — lazy boot. On known AI platforms boot immediately (unchanged behavior).
+    // On generic pages, defer the heavy setup (overlay, model ping, ledgers,
+    // observers, polling, reconciler) until the user focuses a monitored field —
+    // so most browsing does zero work.
+    if (this.detectPlatform() !== 'generic') {
+      await this.activateMonitoring('init');
+    } else {
+      this.armLazyBoot();
+    }
+  }
+
+  // Cheap arming phase (P1): one delegated focusin listener + a probe of the
+  // already-focused element. Boots the full controller once, on first focus of a
+  // monitored field, then detaches.
+  armLazyBoot() {
+    if (this._lazyBootStarted || this.isEnabled) return;
+    const selector = (this.settings.monitoredSelectors || this.getPlatformSelectors()).join(',');
+
+    const matchesMonitored = (el) => {
+      try { return el instanceof Element && !!selector && el.matches(selector); }
+      catch { return false; }
+    };
+
+    const fullBoot = async () => {
+      if (this._lazyBootStarted) return;
+      this._lazyBootStarted = true;
+      document.removeEventListener('focusin', onFocusIn, true);
+      await this.activateMonitoring('focusin');
+      // The focusin that triggered boot fired before the per-element focus
+      // listeners existed, so reflect focus now: surface the (idle) badge for the
+      // currently-focused field, mirroring handleFocus().
+      const active = document.activeElement;
+      if (matchesMonitored(active) && this.monitoredElements.has(active)) {
+        this.focusedElements.add(active);
+        this.showFieldBadge(active);
+        this.updateFieldBadge(active, this.redactions.get(active));
+      }
+    };
+
+    const onFocusIn = (event) => {
+      if (matchesMonitored(event.target)) void fullBoot();
+    };
+
+    document.addEventListener('focusin', onFocusIn, true);
+    // Handle a field that is already focused at arming time.
+    if (matchesMonitored(document.activeElement)) fullBoot();
   }
 
   async loadSettings() {
