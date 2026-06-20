@@ -1325,6 +1325,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const isDetectionAction = request.action === 'detectPII' || request.action === 'detectPIIFast';
   if (isDetectionAction && !sender?.tab?.id) return false;
 
+  // ── Toolbar-icon badge (U1) ──
+  // Push from a content script: amber count of unredacted detections, green ✓
+  // when everything is protected, cleared when there's nothing.
+  if (request.action === 'veilStatsPush') {
+    if (!sender?.tab?.id) return false;
+    const detected = Number(request.detected) || 0;
+    const protectedCount = Number(request.protected) || 0;
+    const pending = Math.max(0, detected - protectedCount);
+    const tabId = sender.tab.id;
+    const text = pending > 0
+      ? (pending > 99 ? '99+' : String(pending))
+      : (protectedCount > 0 ? '✓' : '');
+    chrome.action.setBadgeText({ tabId, text });
+    if (text) {
+      chrome.action.setBadgeBackgroundColor({ tabId, color: pending > 0 ? '#B45309' : '#15803D' });
+      try { chrome.action.setBadgeTextColor({ tabId, color: '#FFFFFF' }); } catch { /* older Chrome */ }
+    }
+    return false;
+  }
+
   if (request.action === 'detectPIIFast') {
     try {
       const detections = detector.detectFastLocalProtection(request.text, request.options);
@@ -1437,4 +1457,13 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.runtime.onStartup.addListener(() => {
   detector.warmUpIfAvailable().catch(() => { });
+});
+
+// Clear the toolbar badge (U1) when a tab navigates — the content script will
+// re-push counts for the new page. `status === 'loading'` is available without
+// the optional "tabs" permission.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading') {
+    chrome.action.setBadgeText({ tabId, text: '' });
+  }
 });

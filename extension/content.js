@@ -166,6 +166,9 @@ class VeilContentController {
     this.isEnabled = false;
     this.overlay = null;
     this.pageStats = { detections: 0, redactions: 0 };
+    // Throttle for the toolbar-icon badge push (U1).
+    this._toolbarStatsLast = 0;
+    this._toolbarStatsTimer = null;
 
     this.monitoredElements = new Map();
     this.redactions = new Map();        // element → { sourceText, sourceHtml, mode, items[] }
@@ -2459,6 +2462,9 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   renderElement(element, flashIndex = -1) {
+    // Reflect the latest page-wide counts on the toolbar icon (U1). Fired here
+    // because every state change (detect/redact/dismiss/restore/ignore) renders.
+    this.scheduleToolbarStatsPush();
     const state = this.redactions.get(element);
     if (!state) return;
 
@@ -4033,6 +4039,37 @@ class VeilContentController {
     });
 
     return { detections, redactions };
+  }
+
+  // ── Toolbar-icon badge (U1) ───────────────────────────────────────────────
+  // Push live page counts to the background worker, which renders an amber count
+  // / green check on the extension icon. Throttled to ≤1/sec with a trailing
+  // call; top-frame only (matches getPageStats) so iframes don't fight the badge.
+  scheduleToolbarStatsPush() {
+    if (window !== window.top) return;
+    const now = Date.now();
+    const since = now - this._toolbarStatsLast;
+    if (since >= 1000) {
+      this._toolbarStatsLast = now;
+      this._sendToolbarStats();
+    } else if (!this._toolbarStatsTimer) {
+      this._toolbarStatsTimer = setTimeout(() => {
+        this._toolbarStatsTimer = null;
+        this._toolbarStatsLast = Date.now();
+        this._sendToolbarStats();
+      }, 1000 - since);
+    }
+  }
+
+  _sendToolbarStats() {
+    const { detections, redactions } = this.computeLiveStats();
+    try {
+      chrome.runtime.sendMessage({
+        action: 'veilStatsPush',
+        detected: detections,
+        protected: redactions
+      }).catch(() => { /* SW asleep / no receiver — non-fatal */ });
+    } catch { /* context invalidated — non-fatal */ }
   }
 
   handleRuntimeMessage(request, _sender, sendResponse) {

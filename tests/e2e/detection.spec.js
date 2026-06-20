@@ -936,3 +936,115 @@ test.describe('Persistent Ignore List (U3)', () => {
         await page.close();
     });
 });
+
+test.describe('Toolbar Badge (U1)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    // Opens an extension page, resolves the content-fixture tab id (the URL may
+    // change later on navigation), and returns a reader bound to that tab id.
+    async function openBadgeReader(context, extensionId) {
+        const extPage = await context.newPage();
+        await extPage.goto(`chrome-extension://${extensionId}/popup.html`);
+        await extPage.waitForLoadState('domcontentloaded');
+        const tabId = await extPage.evaluate(() => new Promise((resolve) => {
+            chrome.tabs.query({}, (tabs) => {
+                const t = (tabs || []).find((tab) => tab.url && tab.url.includes('content-fixture'));
+                resolve(t ? t.id : null);
+            });
+        }));
+        const read = () => extPage.evaluate((id) => new Promise((resolve) => {
+            chrome.action.getBadgeText({ tabId: id }, (text) => resolve(text));
+        }), tabId);
+        return { extPage, read };
+    }
+
+    test('shows an amber count after detection', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const { extPage, read } = await openBadgeReader(context, extensionId);
+        await expect.poll(read, { timeout: 10000 }).toMatch(/^[1-9]/);
+
+        await extPage.close();
+        await page.close();
+    });
+
+    test('flips to a green check after redact-all', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+        await expect(page.locator('.ps-field-badge.ps-badge-protected')).toBeVisible({ timeout: 5000 });
+
+        const { extPage, read } = await openBadgeReader(context, extensionId);
+        await expect.poll(read, { timeout: 10000 }).toBe('✓');
+
+        await extPage.close();
+        await page.close();
+    });
+
+    test('clears the badge on navigation', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Reader resolves the tab id while still on the fixture URL.
+        const { extPage, read } = await openBadgeReader(context, extensionId);
+        await expect.poll(read, { timeout: 10000 }).toMatch(/^[1-9]/);
+
+        // Navigate away — the badge must clear for that tab.
+        await page.goto('about:blank');
+        await page.waitForLoadState('domcontentloaded');
+        await expect.poll(read, { timeout: 10000 }).toBe('');
+
+        await extPage.close();
+        await page.close();
+    });
+});
