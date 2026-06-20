@@ -292,6 +292,25 @@
     return entries.length <= limit ? entries.slice() : entries.slice(entries.length - limit);
   }
 
+  function normalizeSiteHost(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    const withoutWildcard = raw.replace(/^\*\./, '');
+    const cleanHost = (host) => String(host || '').replace(/^\*\./, '').replace(/^\.+|\.+$/g, '');
+    try {
+      return cleanHost(new URL(withoutWildcard.includes('://') ? withoutWildcard : `https://${withoutWildcard}`).hostname);
+    } catch {
+      return cleanHost(withoutWildcard.split('/')[0].split(':')[0]);
+    }
+  }
+
+  function hostMatchesSite(host, site) {
+    const normalizedHost = normalizeSiteHost(host);
+    const normalizedSite = normalizeSiteHost(site);
+    if (!normalizedHost || !normalizedSite) return false;
+    return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
+  }
+
   const api = {
     DEFAULT_CUSTOM_PATTERNS,
     LEGACY_OPENAI_KEY_PATTERN,
@@ -300,7 +319,9 @@
     cloneDefaultCustomPatterns,
     normalizeCustomPatterns,
     pruneIgnoredByTtl,
-    capFifo
+    capFifo,
+    normalizeSiteHost,
+    hostMatchesSite
   };
 
   if (typeof module !== 'undefined' && module.exports) {

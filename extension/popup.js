@@ -4,9 +4,11 @@ const {
   DEFAULT_CUSTOM_PATTERNS,
   PATTERN_NAMES,
   cloneDefaultCustomPatterns,
-  normalizeCustomPatterns
+  normalizeCustomPatterns,
+  normalizeSiteHost
 } = globalThis.VEIL_PATTERN_CATALOG;
 const DEFAULT_SERVER_MODEL = 'fastino/gliner2-large-v1';
+const SITE_SNOOZE_MS = 60 * 60 * 1000;
 const MODEL_SELECTION_ALIASES = {
   'fastino/gliner2-base-v1': DEFAULT_SERVER_MODEL
 };
@@ -59,7 +61,9 @@ const DEFAULT_SETTINGS = {
     '.ProseMirror'
   ],
   customPatterns: cloneDefaultCustomPatterns(),
-  customEntityTypes: []
+  customEntityTypes: [],
+  excludedSites: [],
+  siteSnoozes: {}
 };
 
 class SettingsManager {
@@ -79,6 +83,8 @@ class SettingsManager {
     this.serverPhase = 'disconnected';
     this.terminalVisible = false;
     this.serverToolsActivePanel = 'hfToken';
+    this.currentSiteHost = '';
+    this.siteCountdownTimer = null;
     this.serverState = {
       known: false,
       installed: true,
@@ -102,6 +108,7 @@ class SettingsManager {
       document.body.classList.add('full-page');
     }
     await this.loadSettings();
+    await this.loadActiveSite();
     await this.loadLocalSecrets();
     await this.loadPlatformInfo();
     this.bindEvents();
@@ -128,21 +135,79 @@ class SettingsManager {
           ...result
         };
         this.settings.customPatterns = normalizeCustomPatterns(this.settings.customPatterns, cloneDefaultCustomPatterns());
+        this.settings.excludedSites = this.normalizeSiteList(this.settings.excludedSites);
+        this.settings.siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
         resolve();
       });
     });
   }
 
-  async getActiveTabId() {
-    return new Promise((resolve) => {
+  normalizeSiteList(sites) {
+    if (!Array.isArray(sites)) return [];
+    return [...new Set(sites.map((site) => normalizeSiteHost(site)).filter(Boolean))];
+  }
+
+  pruneSiteSnoozes(siteSnoozes) {
+    const source = siteSnoozes && typeof siteSnoozes === 'object' ? siteSnoozes : {};
+    const now = Date.now();
+    const pruned = {};
+    let changed = false;
+    Object.entries(source).forEach(([site, until]) => {
+      const host = normalizeSiteHost(site);
+      const untilMs = Number(until) || 0;
+      if (!host || untilMs <= now) {
+        changed = true;
+        return;
+      }
+      pruned[host] = untilMs;
+      if (host !== site) changed = true;
+    });
+    if (changed) {
+      chrome.storage.local.set({ siteSnoozes: pruned });
+    }
+    return pruned;
+  }
+
+  isPageUrl(url) {
+    try {
+      const parsed = new URL(url || '');
+      return ['http:', 'https:', 'file:'].includes(parsed.protocol);
+    } catch {
+      return false;
+    }
+  }
+
+  async getActiveTab() {
+    const activeTab = await new Promise((resolve) => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (chrome.runtime.lastError) {
           resolve(null);
           return;
         }
-        resolve(typeof tabs?.[0]?.id === 'number' ? tabs[0].id : null);
+        resolve(tabs?.[0] || null);
       });
     });
+    if (activeTab?.url && this.isPageUrl(activeTab.url)) return activeTab;
+
+    return new Promise((resolve) => {
+      chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        if (chrome.runtime.lastError) {
+          resolve(null);
+          return;
+        }
+        resolve((tabs || []).find((tab) => this.isPageUrl(tab.url)) || null);
+      });
+    });
+  }
+
+  async loadActiveSite() {
+    const tab = await this.getActiveTab();
+    this.currentSiteHost = normalizeSiteHost(tab?.url);
+  }
+
+  async getActiveTabId() {
+    const tab = await this.getActiveTab();
+    return typeof tab?.id === 'number' ? tab.id : null;
   }
 
   async loadPageStats() {
@@ -294,6 +359,11 @@ class SettingsManager {
     const openSettings = () => chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
     document.getElementById('openSettingsTabBtn')?.addEventListener('click', openSettings);
     document.getElementById('anonymizeHintSettingsBtn')?.addEventListener('click', openSettings);
+    document.getElementById('siteToggleHere')?.addEventListener('change', (event) => {
+      this.setCurrentSiteEnabled(event.target.checked);
+    });
+    document.getElementById('pauseSiteButton')?.addEventListener('click', () => this.pauseCurrentSite());
+    document.getElementById('resumeSiteButton')?.addEventListener('click', () => this.resumeCurrentSite());
 
     document.getElementById('enabledToggle').addEventListener('change', (event) => {
       this.updateSetting('enabled', event.target.checked);
@@ -443,6 +513,10 @@ class SettingsManager {
         clearInterval(this.statsPollTimer);
         this.statsPollTimer = null;
       }
+      if (this.siteCountdownTimer) {
+        clearInterval(this.siteCountdownTimer);
+        this.siteCountdownTimer = null;
+      }
     });
 
     window.addEventListener('focus', () => {
@@ -490,6 +564,7 @@ class SettingsManager {
     this.renderServerToolsPanel();
     this.renderReleaseInfo();
     this.renderServerButtons();
+    this.renderSiteControls();
   }
 
   renderStatus() {
@@ -604,6 +679,80 @@ class SettingsManager {
 
   renderAdvancedStates() {
     document.getElementById('monitoredSitesInput').disabled = Boolean(this.settings.monitorAllSites);
+  }
+
+  renderSiteControls() {
+    const row = document.getElementById('siteControlRow');
+    if (!row) return;
+    const host = this.currentSiteHost;
+    row.hidden = !host;
+    if (!host) return;
+
+    const hostNode = document.getElementById('currentSiteHost');
+    const toggle = document.getElementById('siteToggleHere');
+    const pauseButton = document.getElementById('pauseSiteButton');
+    const snoozeStatus = document.getElementById('siteSnoozeStatus');
+    const resumeButton = document.getElementById('resumeSiteButton');
+    const label = document.getElementById('siteToggleLabelText');
+    const excluded = this.normalizeSiteList(this.settings.excludedSites).includes(host);
+    const until = Number(this.settings.siteSnoozes?.[host]) || 0;
+    const snoozed = until > Date.now();
+
+    if (hostNode) hostNode.textContent = host;
+    if (toggle) toggle.checked = !excluded;
+    if (label) label.textContent = excluded ? 'Off here' : 'On here';
+    if (pauseButton) pauseButton.disabled = snoozed;
+    if (snoozeStatus) {
+      snoozeStatus.hidden = !snoozed;
+      if (snoozed) {
+        const resumesAt = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        snoozeStatus.textContent = `Paused · resumes ${resumesAt}`;
+      }
+    }
+    if (resumeButton) resumeButton.hidden = !snoozed;
+
+    if (this.siteCountdownTimer) {
+      clearInterval(this.siteCountdownTimer);
+      this.siteCountdownTimer = null;
+    }
+    if (snoozed) {
+      this.siteCountdownTimer = setInterval(() => {
+        this.settings.siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
+        this.renderSiteControls();
+      }, 30000);
+    }
+  }
+
+  setCurrentSiteEnabled(enabled) {
+    const host = this.currentSiteHost;
+    if (!host) return;
+    const sites = this.normalizeSiteList(this.settings.excludedSites);
+    const next = enabled
+      ? sites.filter((site) => site !== host)
+      : [...new Set([...sites, host])];
+    this.settings.excludedSites = next;
+    chrome.storage.local.set({ excludedSites: next }, () => this.setMessage(enabled ? 'Veil enabled here.' : 'Veil paused on this site.'));
+    this.renderSiteControls();
+  }
+
+  pauseCurrentSite() {
+    const host = this.currentSiteHost;
+    if (!host) return;
+    const siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
+    siteSnoozes[host] = Date.now() + SITE_SNOOZE_MS;
+    this.settings.siteSnoozes = siteSnoozes;
+    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('Veil paused here for 1 hour.'));
+    this.renderSiteControls();
+  }
+
+  resumeCurrentSite() {
+    const host = this.currentSiteHost;
+    if (!host) return;
+    const siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
+    delete siteSnoozes[host];
+    this.settings.siteSnoozes = siteSnoozes;
+    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('Veil resumed here.'));
+    this.renderSiteControls();
   }
 
   renderModeSummary() {

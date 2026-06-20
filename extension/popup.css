@@ -1572,6 +1572,74 @@ a.maya-link:hover { text-decoration: underline; }
   color: #79747E;
 }
 
+/* ─── Per-site quick controls ─── */
+.site-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #FFFBFE;
+  border-bottom: 1px solid #CAC4D0;
+}
+
+.site-control-row[hidden] {
+  display: none !important;
+}
+
+.site-control-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.site-control-host {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1C1B1F;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.site-control-status {
+  font-size: 11px;
+  color: #79747E;
+}
+
+.site-control-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.site-control-actions .site-toggle {
+  gap: 6px;
+}
+
+.site-control-actions .qs-track {
+  width: 40px;
+  height: 24px;
+}
+
+.site-control-actions .qs-thumb {
+  left: 4px;
+  width: 12px;
+  height: 12px;
+}
+
+.site-control-actions .qs-checkbox:checked + .qs-track .qs-thumb {
+  transform: translateX(16px);
+}
+
+.site-control-actions .qs-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* ─── Quick controls row: M3 Surface ─── */
 .quick-row {
   display: flex;

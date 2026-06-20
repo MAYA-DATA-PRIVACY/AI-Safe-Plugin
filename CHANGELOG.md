@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added per-site quick controls to the popup: the current host can be paused for one hour or turned off/on directly, backed by `excludedSites` and `siteSnoozes` storage that content scripts honor live.
 - Added a live count on the Veil toolbar icon: an amber badge shows how many detections still need attention on the current page, flips to a green check when everything is protected, and clears when you navigate away — so you get an at-a-glance signal without opening the popup. Push-based and throttled; no new permissions.
 - Brought back the hover popover on detection underlines: hovering an unredacted detection now shows a small card with the detection type, a one-line explanation of why it matters, and Redact / Dismiss actions — so the colored underlines are self-explanatory. The card works on rich-editor (ChatGPT/Gemini/Claude-style) fields, closes on Escape or pointer-out, and respects reduced-motion.
 - Added a persistent per-site "Ignore on this site" action (on the hover popover and the field panel) so Veil stops flagging values you've marked as safe — and remembers them across reloads. Ignored values are stored per site, expire after 90 days, and can be reviewed or removed from the new "Ignored Values" card in the options page. High-risk types (cards, SSNs, API keys, JWTs, private keys, connection strings, Aadhaar) can never be ignored.

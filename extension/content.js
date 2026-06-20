@@ -6,7 +6,9 @@ const {
   normalizeCustomPatterns,
   HIGH_RISK_LABELS,
   pruneIgnoredByTtl,
-  capFifo
+  capFifo,
+  normalizeSiteHost,
+  hostMatchesSite
 } = globalThis.VEIL_PATTERN_CATALOG;
 
 const IGNORED_VALUES_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
@@ -75,24 +77,6 @@ const AUTO_REDACT_DELAY_MS = 1500;
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MASK_MODE_HINT_STORAGE_KEY = 'maskModeHintSeen';
 const FAST_PROTECTION_MIN_CHARS = 480;
-
-function normalizeSiteHost(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-  const withoutWildcard = raw.replace(/^\*\./, '');
-  try {
-    return new URL(withoutWildcard.includes('://') ? withoutWildcard : `https://${withoutWildcard}`).hostname.replace(/^\.+|\.+$/g, '');
-  } catch {
-    return withoutWildcard.split('/')[0].split(':')[0].replace(/^\.+|\.+$/g, '');
-  }
-}
-
-function hostMatchesSite(host, site) {
-  const normalizedHost = normalizeSiteHost(host);
-  const normalizedSite = normalizeSiteHost(site);
-  if (!normalizedHost || !normalizedSite) return false;
-  return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
-}
 
 function isStaticRedactionToken(value) {
   return /^\[[A-Z0-9_ -]+ REDACTED\]$/.test(String(value || '').trim());
@@ -228,6 +212,7 @@ class VeilContentController {
     this.domObserver = null;
     this.stateReconcileTimer = null;
     this._pollingInterval = null;
+    this._settingsChangeListenerBound = false;
     this.handleViewportChange = () => this.scheduleAnchoredUiRefresh('viewport');
     this.handleRuntimeMessage = this.handleRuntimeMessage.bind(this);
     chrome.runtime.onMessage.addListener(this.handleRuntimeMessage);
@@ -261,22 +246,12 @@ class VeilContentController {
 
   async init() {
     await this.loadSettings();
+    this.setupSettingsChangeListener();
 
     if (!this.settings.enabled) return;
     if (!this.isSiteMonitored()) return;
 
-    this.isEnabled = true;
-    this.createOverlay();
-    await this.initializeModel();
-    // Load per-site alias ledger before starting monitoring so that the first
-    // element to trigger detection already has the correct counter seed.
-    await this.loadSiteAliasLedger();
-    await this.loadSiteIgnoredValues();
-    this.startMonitoring();
-
-    // Rehydrate cached redactions
-    this.rehydrateCachedRedactions();
-    this.scheduleAssistantResponseRestore('init');
+    await this.activateMonitoring('init');
   }
 
   async loadSettings() {
@@ -292,7 +267,9 @@ class VeilContentController {
         'monitoredSites',
         'monitoredSelectors',
         'customPatterns',
-        'customEntityTypes'
+        'customEntityTypes',
+        'excludedSites',
+        'siteSnoozes'
       ], (result) => {
         this.settings = {
           enabled: result.enabled ?? true,
@@ -307,7 +284,9 @@ class VeilContentController {
             ? result.monitoredSelectors
             : this.getPlatformSelectors(),
           customPatterns: normalizeCustomPatterns(result.customPatterns, cloneDefaultCustomPatterns()),
-          customEntityTypes: Array.isArray(result.customEntityTypes) ? result.customEntityTypes : []
+          customEntityTypes: Array.isArray(result.customEntityTypes) ? result.customEntityTypes : [],
+          excludedSites: Array.isArray(result.excludedSites) ? result.excludedSites : [],
+          siteSnoozes: result.siteSnoozes && typeof result.siteSnoozes === 'object' ? result.siteSnoozes : {}
         };
         resolve();
       });
@@ -315,9 +294,54 @@ class VeilContentController {
   }
 
   isSiteMonitored() {
-    if (this.settings.monitorAllSites) return true;
     const host = window.location.hostname;
-    return this.settings.monitoredSites.some((site) => hostMatchesSite(host, site));
+    const monitored = this.settings.monitorAllSites
+      || this.settings.monitoredSites.some((site) => hostMatchesSite(host, site));
+    if (!monitored) return false;
+    if (this.settings.excludedSites.some((site) => hostMatchesSite(host, site))) return false;
+
+    const normalizedHost = normalizeSiteHost(host);
+    const now = Date.now();
+    const snoozes = this.settings.siteSnoozes || {};
+    const pruned = {};
+    let changed = false;
+    Object.entries(snoozes).forEach(([site, until]) => {
+      const normalizedSite = normalizeSiteHost(site);
+      const untilMs = Number(until) || 0;
+      if (!normalizedSite || untilMs <= now) {
+        changed = true;
+        return;
+      }
+      pruned[normalizedSite] = untilMs;
+      if (normalizedSite !== site) changed = true;
+    });
+    if (changed) {
+      this.settings.siteSnoozes = pruned;
+      chrome.storage.local.set({ siteSnoozes: pruned });
+    }
+    return !(normalizedHost && pruned[normalizedHost] > now);
+  }
+
+  async activateMonitoring(_reason = 'settings') {
+    if (this.isEnabled) {
+      this.findInputElements();
+      return;
+    }
+
+    this.isEnabled = true;
+    if (!this.overlay?.isConnected) {
+      this.createOverlay();
+    }
+    await this.initializeModel();
+    // Load per-site alias ledger before starting monitoring so that the first
+    // element to trigger detection already has the correct counter seed.
+    await this.loadSiteAliasLedger();
+    await this.loadSiteIgnoredValues();
+    this.startMonitoring();
+
+    // Rehydrate cached redactions
+    this.rehydrateCachedRedactions();
+    this.scheduleAssistantResponseRestore('activate');
   }
 
   async initializeModel() {
@@ -541,6 +565,7 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   startMonitoring() {
+    this.isEnabled = true;
     this.findInputElements();
     this.startStateReconciler();
     this.startDynamicMonitoring();
@@ -583,6 +608,11 @@ class VeilContentController {
       }
     });
 
+  }
+
+  setupSettingsChangeListener() {
+    if (this._settingsChangeListenerBound) return;
+    this._settingsChangeListenerBound = true;
     chrome.storage.onChanged.addListener((changes) => {
       if (
         changes.enabled ||
@@ -594,14 +624,16 @@ class VeilContentController {
         changes.monitorAllSites ||
         changes.monitoredSites ||
         changes.monitoredSelectors ||
+        changes.excludedSites ||
+        changes.siteSnoozes ||
         changes.customPatterns ||
         changes.customEntityTypes
       ) {
-        this.loadSettings().then(() => {
+        this.loadSettings().then(async () => {
           if (!this.settings.enabled || !this.isSiteMonitored()) {
             this.stopMonitoring();
           } else {
-            this.findInputElements();
+            await this.activateMonitoring('settings-change');
           }
         });
       }
@@ -4151,6 +4183,7 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   stopMonitoring() {
+    this.isEnabled = false;
     this.monitoredElements.forEach((listeners, element) => {
       element.removeEventListener('input', listeners.handleInput);
       element.removeEventListener('paste', listeners.handlePaste);

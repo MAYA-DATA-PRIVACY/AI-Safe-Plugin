@@ -6,6 +6,8 @@ const { startMockServer, stopMockServer } = require('./mock_server');
 
 const MOCK_SERVER_PORT = 18775;
 const MOCK_SERVER_URL = `http://127.0.0.1:${MOCK_SERVER_PORT}`;
+const POPUP_SITE_PATH = '/popup-site';
+const POPUP_SITE_URL = `${MOCK_SERVER_URL}${POPUP_SITE_PATH}`;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +30,21 @@ async function setLocalServerOverride(page, url) {
 
 async function clearLocalServerOverride(page) {
     await page.evaluate(() => new Promise((resolve) => chrome.storage.local.remove('veilLocalServerUrlOverride', resolve)));
+}
+
+async function openPopupForSite(context, extensionId, url) {
+    const target = await context.newPage();
+    await target.goto(url);
+    await target.waitForLoadState('domcontentloaded');
+
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${extensionId}/popup.html`);
+    await page.waitForLoadState('domcontentloaded');
+    await markOnboardingDone(page);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('#currentSiteHost')).toHaveText('127.0.0.1');
+    return { page, target };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -70,6 +87,61 @@ test.describe('Popup UI', () => {
         await page.waitForLoadState('domcontentloaded');
         await expect(page.locator('#nativeHostInstallCommand')).toContainText('github.com/Maya-Data-Privacy/Veil/releases/latest/download');
         await expect(page.locator('#nativeHostUninstallCommand')).toContainText('github.com/Maya-Data-Privacy/Veil/releases/latest/download');
+    });
+});
+
+test.describe('Per-site Quick Controls', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            pages: {
+                [POPUP_SITE_PATH]: '<!DOCTYPE html><html><body><textarea id="field"></textarea></body></html>',
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('turning Off here writes the current host to excludedSites', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
+
+        await page.locator('#siteToggleLabel').click();
+        const excludedSites = await page.evaluate(() => new Promise((resolve) => {
+            chrome.storage.local.get('excludedSites', (result) => resolve(result.excludedSites || []));
+        }));
+
+        expect(excludedSites).toContain('127.0.0.1');
+        await page.close();
+        await target.close();
+    });
+
+    test('Pause 1h writes a future siteSnoozes entry and Resume clears it', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
+
+        await page.locator('#pauseSiteButton').click();
+        await expect(page.locator('#siteSnoozeStatus')).toContainText('Paused');
+        const pausedUntil = await page.evaluate(() => new Promise((resolve) => {
+            chrome.storage.local.get('siteSnoozes', (result) => resolve(result.siteSnoozes?.['127.0.0.1'] || 0));
+        }));
+        expect(pausedUntil).toBeGreaterThan(Date.now());
+
+        await page.locator('#resumeSiteButton').click();
+        const afterResume = await page.evaluate(() => new Promise((resolve) => {
+            chrome.storage.local.get('siteSnoozes', (result) => resolve(result.siteSnoozes || {}));
+        }));
+        expect(afterResume['127.0.0.1']).toBeUndefined();
+
+        await page.close();
+        await target.close();
     });
 });
 

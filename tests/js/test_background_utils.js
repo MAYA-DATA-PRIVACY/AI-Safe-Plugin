@@ -13,6 +13,8 @@ const {
   HIGH_RISK_LABELS,
   pruneIgnoredByTtl,
   capFifo,
+  normalizeSiteHost,
+  hostMatchesSite,
 } = require('../../extension/pattern_catalog.js');
 const {
   REGEX_SMOKE_TEXT,
@@ -207,24 +209,6 @@ function buildResponseRestoreComponents(label, replacement, original) {
       !/\d/.test(part) &&
       !/\d/.test(mapped)
     ));
-}
-
-function normalizeSiteHost(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return '';
-  const withoutWildcard = raw.replace(/^\*\./, '');
-  try {
-    return new URL(withoutWildcard.includes('://') ? withoutWildcard : `https://${withoutWildcard}`).hostname.replace(/^\.+|\.+$/g, '');
-  } catch {
-    return withoutWildcard.split('/')[0].split(':')[0].replace(/^\.+|\.+$/g, '');
-  }
-}
-
-function hostMatchesSite(host, site) {
-  const normalizedHost = normalizeSiteHost(host);
-  const normalizedSite = normalizeSiteHost(site);
-  if (!normalizedHost || !normalizedSite) return false;
-  return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
 }
 
 function collectSelectorMatches(selectors, querySelectorAll) {
@@ -495,6 +479,7 @@ section('assistant response restore — non-person labels do not create sub-word
 
 section('site matching — exact or suffix-boundary only');
 {
+  assertEqual(normalizeSiteHost('https://*.ChatGPT.com/path'), 'chatgpt.com', 'configured site URLs normalize to hostnames');
   assertEqual(hostMatchesSite('chatgpt.com', 'chatgpt.com'), true, 'exact monitored host matches');
   assertEqual(hostMatchesSite('team.chatgpt.com', 'chatgpt.com'), true, 'subdomain monitored host matches');
   assertEqual(hostMatchesSite('evilchatgpt.com', 'chatgpt.com'), false, 'substring host does not match');

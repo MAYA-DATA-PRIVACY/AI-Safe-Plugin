@@ -259,6 +259,41 @@ test.describe('Content-Script Detection', () => {
         await page.close();
     });
 
+    test('excludedSites disables detection until the site is removed and reloaded', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+        await withExtensionPage(context, extensionId, (page) => page.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({
+                autoRedact: false,
+                excludedSites: ['127.0.0.1'],
+            }, resolve)),
+        ));
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe and my email is jane@example.com');
+        await page.waitForTimeout(3000);
+
+        await expect(page.locator('.ps-field-badge')).toHaveCount(0);
+        await expect(page.locator('.ps-pii-underline')).toHaveCount(0);
+
+        await withExtensionPage(context, extensionId, (extensionPage) => extensionPage.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({ excludedSites: [] }, resolve)),
+        ));
+        await page.reload();
+        await page.waitForLoadState('domcontentloaded');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe and my email is jane@example.com');
+
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        await page.close();
+    });
+
     test('regex token detectors stay off while the model is online when the toggle is disabled', async ({ extensionContext }) => {
         const { context, extensionId } = extensionContext;
         await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
