@@ -322,6 +322,10 @@ A compromised browser, a malicious extension with higher privileges, OS-level ke
 
 Please do not open public issues for security vulnerabilities. See [docs/SECURITY.md](docs/SECURITY.md) for responsible disclosure instructions.
 
+### Privacy
+
+Veil performs detection locally by default; optional Maya anonymisation runs only when you enable it. See the full [Privacy Policy](docs/PRIVACY_POLICY.md) for what Veil processes, what leaves the device, and how local data is stored and deleted.
+
 ---
 
 ## Roadmap

@@ -9,8 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The local server no longer writes anonymisation response bodies to its logs. Anonymisation logging is now metadata-only by default (counts, status codes, and body sizes), so raw values returned by the Maya endpoint never reach the logs. Verbose logging can be restored for debugging by setting `VEIL_DEBUG_ANON_LOGS=1`.
+
+### Added
+
+- Added a "Delete all Veil data" control in the Advanced settings. A two-click confirm fully clears all browser-local Veil data — settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats — then restores defaults.
+- Published the Veil privacy policy at `docs/PRIVACY_POLICY.md`, linked from the extension's About section and the README.
+
 ### Changed
 
+- Corrected store and in-app copy that claimed data "never leaves your machine" to accurately describe Veil as local detection by default, with optional Maya anonymisation only when the user enables it.
 - Replaced the "Veil / Scanning..." banner pill and the floating action bar with a single 26 px corner badge per field. The badge morphs between five states — idle monogram, spinning scanner, amber count of unredacted items, green check when all protected, and a fallback dot when the server is offline — so the field is never obscured while typing.
 - Clicking the badge opens a compact panel listing each detected item with individual redact, restore, and dismiss actions, plus "Redact all" and "Restore all" footer buttons. The panel replaces the old action bar entirely.
 - The token tray remains for redacted textarea/input fields but is hidden while the panel is open to avoid duplication.

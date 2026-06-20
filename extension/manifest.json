@@ -3,7 +3,7 @@
   "name": "Veil \u2014 AI Privacy Guard",
   "short_name": "Veil",
   "version": "1.2.8",
-  "description": "Real-time PII detection and redaction for AI chat interfaces. Powered by GLiNER2. Your data never leaves your machine.",
+  "description": "Real-time PII detection and redaction for AI chat interfaces. Local GLiNER2 detection by default.",
   "permissions": [
     "storage",
     "activeTab",

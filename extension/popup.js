@@ -375,6 +375,7 @@ class SettingsManager {
     document.getElementById('confirmAddEntityButton').addEventListener('click', () => this.addEntityTypeFromForm());
 
     document.getElementById('resetButton').addEventListener('click', () => this.resetDefaults());
+    document.getElementById('deleteAllDataButton')?.addEventListener('click', () => this.deleteAllVeilData());
 
     document.getElementById('refreshServerButton').addEventListener('click', async () => {
       await this.refreshServerStatus();
@@ -1822,6 +1823,39 @@ class SettingsManager {
     this.settings = { ...DEFAULT_SETTINGS };
     this.render();
     this.setMessage('Settings reset to defaults.');
+  }
+
+  /**
+   * Full wipe of all Veil browser-local data (H6). Uses a two-click confirm — the
+   * first click arms the button for 5 s, the second performs the wipe — instead of
+   * window.confirm. After clearing, defaults are re-seeded; content scripts react to
+   * the storage change via their chrome.storage.onChanged listener.
+   */
+  async deleteAllVeilData() {
+    const btn = document.getElementById('deleteAllDataButton');
+    if (!btn) return;
+
+    if (!this._deleteDataArmed) {
+      this._deleteDataArmed = true;
+      const original = btn.dataset.originalLabel || btn.textContent;
+      btn.dataset.originalLabel = original;
+      btn.textContent = 'Click again to confirm';
+      this._deleteDataTimer = setTimeout(() => {
+        this._deleteDataArmed = false;
+        btn.textContent = btn.dataset.originalLabel || original;
+      }, 5000);
+      return;
+    }
+
+    if (this._deleteDataTimer) clearTimeout(this._deleteDataTimer);
+    this._deleteDataArmed = false;
+    btn.textContent = btn.dataset.originalLabel || 'Delete all Veil data';
+
+    await chrome.storage.local.clear();
+    await chrome.storage.local.set(DEFAULT_SETTINGS);
+    this.settings = { ...DEFAULT_SETTINGS };
+    this.render();
+    this.setMessage('All Veil data deleted. Settings restored to defaults.');
   }
 
   setMessage(text, isError = false) {

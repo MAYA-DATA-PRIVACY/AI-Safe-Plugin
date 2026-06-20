@@ -1,7 +1,7 @@
 {
   "name": "veil",
   "version": "1.2.8",
-  "description": "Real-time PII detection and redaction for AI chat interfaces. Powered by a local GLiNER2 model — your data never leaves your machine.",
+  "description": "Real-time PII detection and redaction for AI chat interfaces. Local GLiNER2 detection by default. Optional Maya anonymisation only when you enable it.",
   "scripts": {
     "setup": "uv sync --frozen --dev --no-install-project --python 3.11",
     "download-gliner2": "uv run --no-sync python server/gliner2_server.py --download-only",

@@ -502,6 +502,14 @@
             <button id="loadDefaultsButton" type="button" class="ghost compact">Reset to Defaults</button>
           </div>
         </div>
+
+        <div class="opt-card opt-danger-zone">
+          <div class="opt-danger-header">Danger zone</div>
+          <p class="hint">Permanently deletes all Veil data stored in your browser and restores default settings. This removes your settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats. This cannot be undone.</p>
+          <div class="button-row">
+            <button id="deleteAllDataButton" type="button" class="opt-danger-button">Delete all Veil data</button>
+          </div>
+        </div>
       </section>
 
 
@@ -528,7 +536,7 @@
             </div>
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">Privacy Model</span>
-              <span class="opt-about-fact-val">100% local inference — text never leaves your machine</span>
+              <span class="opt-about-fact-val">Local detection by default — optional Maya anonymisation only when you enable it</span>
             </div>
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">Anonymize API</span>
@@ -547,6 +555,10 @@
             <a href="https://github.com/Maya-data-privacy/veil/issues" target="_blank" rel="noreferrer" class="opt-about-link opt-about-link-secondary">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9 3a1 1 0 11-2 0 1 1 0 012 0zm-.25-6.25a.75.75 0 00-1.5 0v3.5a.75.75 0 001.5 0v-3.5z"/></svg>
               Report an Issue
+            </a>
+            <a href="https://github.com/Maya-data-privacy/veil/blob/main/docs/PRIVACY_POLICY.md" target="_blank" rel="noreferrer" class="opt-about-link opt-about-link-secondary">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 1H4a1.5 1.5 0 00-1.5 1.5v11A1.5 1.5 0 004 15h8a1.5 1.5 0 001.5-1.5V5L9.5 1zM5 8h6v1H5V8zm0 3h6v1H5v-1zM9 2l3.5 3.5H9V2z"/></svg>
+              Privacy Policy
             </a>
           </div>
           <div class="opt-about-reset">

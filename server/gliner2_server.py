@@ -100,6 +100,9 @@ PROCESS_STATE_FILE = RUNTIME_DIR / "server_process.json"
 ANON_ENDPOINT_ENV_KEY = "MDP_ANONYMIZATION_ENDPOINT"
 DEFAULT_ANONYMIZATION_ENDPOINT = "https://app.mayadataprivacy.in/mdp/engine/anonymization"
 ANON_REQUEST_TIMEOUT_SEC = 10.0
+# When set to "1", restore verbose anonymization logging (full upstream response and
+# body previews) for debugging. Off by default so raw PII never reaches the logs.
+DEBUG_ANON_LOGS = os.environ.get("VEIL_DEBUG_ANON_LOGS", "") == "1"
 PROCESS_SESSION_ID = uuid.uuid4().hex[:10]
 PROCESS_LOCK_HANDLE = None
 
@@ -311,6 +314,25 @@ def log_anonymization(event: str, request_id: str, **fields: Any) -> None:
     print(f"[anonymize] {compact_json(payload)}", flush=True)
 
 
+def scrub_upstream_detail(body: str) -> str:
+    """Return a short upstream error detail only when it is a JSON object whose
+    ``error``/``message`` field is a plain string; otherwise omit the body so raw
+    upstream content (which may contain PII) never surfaces in errors or logs."""
+    text = (body or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return "<non-json upstream error body omitted>"
+    if isinstance(parsed, dict):
+        for key in ("error", "message"):
+            value = parsed.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:320]
+    return "<non-json upstream error body omitted>"
+
+
 def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> Any:
     if not isinstance(entries, list):
         raise ValueError("entries must be a JSON array.")
@@ -358,13 +380,14 @@ def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> 
             body = exc.read().decode("utf-8", errors="replace").strip()
         except Exception:
             body = ""
-        log_anonymization(
-            "response.http_error",
-            request_id,
-            status=int(getattr(exc, "code", 0) or 0),
-            body_preview=body[:1200],
-        )
-        detail = body[:320] if body else str(exc)
+        http_error_fields = {
+            "status": int(getattr(exc, "code", 0) or 0),
+            "body_chars": len(body),
+        }
+        if DEBUG_ANON_LOGS:
+            http_error_fields["body_preview"] = body[:1200]
+        log_anonymization("response.http_error", request_id, **http_error_fields)
+        detail = scrub_upstream_detail(body) or str(exc)
         raise RuntimeError(f"Upstream anonymization failed ({exc.code}): {detail}") from exc
     except urlerror.URLError as exc:
         log_anonymization("response.network_error", request_id, reason=str(exc.reason))
@@ -376,20 +399,23 @@ def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> 
 
     try:
         parsed = json.loads(raw)
-        log_anonymization(
-            "response.inbound",
-            request_id,
-            status=status_code,
-            response=parsed,
-        )
+        inbound_fields = {
+            "status": status_code,
+            "response_type": type(parsed).__name__,
+            "items_count": len(parsed) if isinstance(parsed, list) else None,
+        }
+        if DEBUG_ANON_LOGS:
+            inbound_fields["response"] = parsed
+        log_anonymization("response.inbound", request_id, **inbound_fields)
         return parsed
     except json.JSONDecodeError as exc:
-        log_anonymization(
-            "response.non_json",
-            request_id,
-            status=status_code,
-            body_preview=raw[:1200],
-        )
+        non_json_fields = {
+            "status": status_code,
+            "body_chars": len(raw),
+        }
+        if DEBUG_ANON_LOGS:
+            non_json_fields["body_preview"] = raw[:1200]
+        log_anonymization("response.non_json", request_id, **non_json_fields)
         raise RuntimeError("Anonymization endpoint returned non-JSON response.") from exc
 
 

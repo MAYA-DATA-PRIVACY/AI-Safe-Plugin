@@ -46,7 +46,7 @@ The surfaces most relevant to security researchers are:
 - **Optional Maya anonymisation**: Anonymize mode sends selected detected values and metadata needed for anonymisation to Maya through the local `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine.
 - **Browser-local storage**: Veil stores configuration, custom patterns, the Maya API key if provided, onboarding/preferences, site redaction counters, and cached redaction state in `chrome.storage.local`.
 - **Cached redaction state**: local cache entries may include source text and detected items so the UI can keep redaction state consistent. Entries older than 24 hours are removed by extension cache cleanup.
-- **Local server logs**: the local server should not log raw anonymisation values; anonymisation logging should remain metadata-oriented.
+- **Local server logs**: anonymisation logging is metadata-only by default — the local server logs counts, status codes, and body sizes (`items_count`, `body_chars`), never raw upstream response values. Setting the environment variable `VEIL_DEBUG_ANON_LOGS=1` restores verbose logging (full upstream response and body previews) for debugging only; treat such logs as sensitive and do not enable it in normal use.
 
 ---
 

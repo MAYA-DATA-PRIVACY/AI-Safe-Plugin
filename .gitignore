@@ -3,6 +3,9 @@
 .env
 .env.*
 
+# Working drafts (e.g. Privacy Policy.docx) — never commit binary office files
+*.docx
+
 # ─── Python ──────────────────────────────────────────────────────────────────
 /.venv
 __pycache__/

@@ -999,6 +999,27 @@ button.secondary:hover:not(:disabled) {
   box-shadow: var(--md-elev-1) !important;
 }
 
+/* Danger zone (Delete all Veil data) */
+.opt-danger-zone {
+  border-color: rgba(122, 82, 0, 0.45);
+}
+.opt-danger-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: #7A5200;
+  margin-bottom: 6px;
+}
+button.opt-danger-button {
+  background: #7A5200 !important;
+  color: #fff !important;
+}
+button.opt-danger-button:hover:not(:disabled) {
+  background: #613f00 !important;
+}
+button.opt-danger-button:active:not(:disabled) {
+  background: #4d3200 !important;
+}
+
 /* M3 Outlined Button */
 button.ghost {
   background: transparent !important;

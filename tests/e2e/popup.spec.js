@@ -429,3 +429,43 @@ test.describe('Options Navigation', () => {
         await expect(page.locator('.opt-nav-item[data-section="about"]')).toHaveClass(/is-active/);
     });
 });
+
+test.describe('Delete all Veil data', () => {
+    test('two-click wipe clears sensitive keys and re-seeds defaults', async ({ extensionOptions }) => {
+        const { page } = extensionOptions;
+
+        await page.waitForFunction(() => {
+            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
+
+        // Seed sensitive, non-default data that a true wipe must remove.
+        await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({
+            veilApiKey: 'fake-secret-key',
+            'veil::aliases::example.com': { aliases: { person: 'Alias_1' }, updatedAt: Date.now() },
+        }, resolve)));
+
+        const before = await page.evaluate(() =>
+            new Promise((resolve) => chrome.storage.local.get(['veilApiKey', 'veil::aliases::example.com'], resolve)));
+        expect(before.veilApiKey).toBe('fake-secret-key');
+        expect(before['veil::aliases::example.com']).toBeTruthy();
+
+        const button = page.locator('#deleteAllDataButton');
+        await expect(button).toBeVisible();
+
+        // First click arms the confirm; second click performs the wipe.
+        await button.click();
+        await expect(button).toHaveText('Click again to confirm');
+        await button.click();
+        await page.waitForTimeout(500);
+
+        const after = await page.evaluate(() =>
+            new Promise((resolve) => chrome.storage.local.get(null, resolve)));
+
+        expect(after.veilApiKey).toBeUndefined();
+        expect(after['veil::aliases::example.com']).toBeUndefined();
+        // Defaults are re-seeded after the wipe.
+        expect(after.enabled).toBe(true);
+    });
+});
