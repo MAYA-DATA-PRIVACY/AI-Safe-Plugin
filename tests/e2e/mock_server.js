@@ -122,6 +122,7 @@ async function startMockServer({ port = DEFAULT_PORT, detections = [], loaded = 
                     model: 'mock/gliner2-test',
                     loaded,
                     anonymizationProxy: false,
+                    authRequired: false,
                 }));
                 return;
             }

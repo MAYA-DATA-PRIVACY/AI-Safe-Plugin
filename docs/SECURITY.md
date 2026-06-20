@@ -33,7 +33,7 @@ The surfaces most relevant to security researchers are:
 |---------|-------|
 | Content script ↔ page DOM | `innerHTML` injection paths — all user-controlled strings must be `escapeHtml()`-escaped |
 | Content script ↔ background message | Structured-clone boundary; validate all message shapes |
-| Background ↔ local Python server | HTTP on `127.0.0.1:8765`; CORS responses are limited to trusted extension and localhost origins |
+| Background ↔ local Python server | HTTP on `127.0.0.1:8765`. Detection endpoints (`/detect`, `/classify`, `/structure`, `/anonymize`) require a per-machine shared token (`X-Veil-Token`); CORS is limited to `chrome-extension://`/`moz-extension://` origins (plus any in `VEIL_EXTRA_ALLOWED_ORIGINS`). The server also validates the `Host` header (loopback only) and applies a per-request socket timeout |
 | Local server ↔ Maya anonymisation API | Optional external call for selected anonymisation payloads only when Anonymize mode and a Maya API key are configured |
 | `chrome.storage.local` | Settings, custom patterns, API key, counters, and cached redaction state are stored locally; no Chrome sync storage is used |
 | Custom regex patterns | Executed client-side; regex DoS (ReDoS) possible with malicious patterns |
@@ -43,6 +43,7 @@ The surfaces most relevant to security researchers are:
 ## Data Flow and Retention
 
 - **Local detection**: text being edited is sent from the active tab to the extension background worker and then to the local server. This path stays on the user's machine.
+- **Local server authentication**: on startup the server generates a random token (`secrets.token_hex(32)`) and writes it to `.runtime/server_token` with `0600` permissions (POSIX). The extension obtains it through the native messaging host (`get_server_token`) and sends it as `X-Veil-Token` on detection requests, so other local processes and localhost web pages cannot drive the detection endpoints. `/health` stays unauthenticated and advertises `authRequired`. Auth can be disabled with `--no-auth` / `VEIL_NO_AUTH=1` for custom setups.
 - **Optional Maya anonymisation**: Anonymize mode sends selected detected values and metadata needed for anonymisation to Maya through the local `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine.
 - **Browser-local storage**: Veil stores configuration, custom patterns, the Maya API key if provided, onboarding/preferences, site redaction counters, and cached redaction state in `chrome.storage.local`.
 - **Cached redaction state**: local cache entries may include source text and detected items so the UI can keep redaction state consistent. Entries older than 24 hours are removed by extension cache cleanup.

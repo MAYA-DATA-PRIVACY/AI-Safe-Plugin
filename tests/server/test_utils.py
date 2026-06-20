@@ -2,6 +2,7 @@
 Unit tests for pure utility functions in server/gliner2_server.py.
 Run with: pytest tests/server/test_utils.py -v
 """
+import os
 import sys
 import urllib.error
 from contextlib import contextmanager
@@ -180,6 +181,29 @@ class TestStructureMapping:
     def test_organization_has_its_own_structure_bucket(self):
         assert LABEL_TO_STRUCTURE_KEY["organization"] == "organizations"
         assert LABEL_TO_STRUCTURE_KEY["person"] == "persons"
+
+
+class TestLoadOrCreateToken:
+    def test_creates_token_with_restrictive_perms(self, monkeypatch, tmp_path):
+        token_file = tmp_path / "server_token"
+        monkeypatch.setattr(gliner2_server, "SERVER_TOKEN_FILE", token_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        token = gliner2_server.load_or_create_token()
+
+        assert len(token) == 64  # token_hex(32)
+        assert token_file.read_text(encoding="utf-8").strip() == token
+        if os.name != "nt":
+            mode = token_file.stat().st_mode & 0o777
+            assert mode == 0o600
+
+    def test_reuses_existing_token(self, monkeypatch, tmp_path):
+        token_file = tmp_path / "server_token"
+        token_file.write_text("existing-token-value", encoding="utf-8")
+        monkeypatch.setattr(gliner2_server, "SERVER_TOKEN_FILE", token_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        assert gliner2_server.load_or_create_token() == "existing-token-value"
 
 
 class TestScrubUpstreamDetail:

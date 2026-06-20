@@ -361,15 +361,21 @@ class VeilAnonymizer {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await fetch(`${this.localServerUrl}/anonymize`, {
+      const body = JSON.stringify({ entries: payload });
+      const doFetch = async () => fetch(`${this.localServerUrl}/anonymize`, {
         method: 'POST',
-        headers: {
+        headers: await localServerHeaders({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({ entries: payload }),
+        }),
+        body,
         signal: controller.signal
       });
+      let response = await doFetch();
+      if (response.status === 401 && veilAuthRequired) {
+        await refreshServerToken();
+        response = await doFetch();
+      }
 
       let data = null;
       try {
@@ -605,6 +611,53 @@ function sendNativeHostMessage(payload) {
   return tryHost(0);
 }
 
+// ─── Local-server shared token (H2) ──────────────────────────────────────────
+// The local server generates a token and the native host hands it to us. We
+// attach it as X-Veil-Token on detection POSTs. When the server reports
+// authRequired:false (old servers / --no-auth / the e2e mock) we skip all of this.
+const SERVER_TOKEN_STORAGE_KEY = 'veilServerToken';
+let veilServerToken = null;
+let veilAuthRequired = false;
+
+async function loadCachedServerToken() {
+  if (veilServerToken) return veilServerToken;
+  try {
+    const stored = await chrome.storage.local.get(SERVER_TOKEN_STORAGE_KEY);
+    if (stored && stored[SERVER_TOKEN_STORAGE_KEY]) {
+      veilServerToken = stored[SERVER_TOKEN_STORAGE_KEY];
+    }
+  } catch (_e) { /* storage unavailable — non-fatal */ }
+  return veilServerToken;
+}
+
+async function refreshServerToken() {
+  try {
+    const response = await sendNativeHostMessage({ action: 'get_server_token' });
+    if (response && response.token) {
+      veilServerToken = response.token;
+      try { await chrome.storage.local.set({ [SERVER_TOKEN_STORAGE_KEY]: veilServerToken }); } catch (_e) { /* non-fatal */ }
+      return veilServerToken;
+    }
+  } catch (_e) { /* native host unavailable — caller surfaces setup-needed state */ }
+  return null;
+}
+
+async function getServerToken() {
+  const cached = await loadCachedServerToken();
+  if (cached) return cached;
+  return refreshServerToken();
+}
+
+// Build request headers for a local-server POST, adding the token when required.
+async function localServerHeaders(base = {}) {
+  const headers = { ...base };
+  if (veilAuthRequired) {
+    const token = await getServerToken();
+    if (token) headers['X-Veil-Token'] = token;
+  }
+  return headers;
+}
+
 class GLiNERDetector {
   constructor() {
     this.isLoading = false;
@@ -653,6 +706,9 @@ class GLiNERDetector {
       const response = await this.fetchWithTimeout(`${this.localServerUrl}/health`, { method: 'GET' }, 1400);
       if (!response.ok) return false;
       const data = await response.json();
+      // Track whether this server enforces the shared token so detection POSTs
+      // can attach it. Old servers / the mock omit the field → treated as false.
+      veilAuthRequired = Boolean(data?.authRequired);
       return Boolean(data?.ok);
     } catch {
       return false;
@@ -870,16 +926,22 @@ class GLiNERDetector {
     const requestBody = { text, labels, threshold };
     if (thresholds) requestBody.thresholds = thresholds;
 
-    const response = await this.fetchWithTimeout(
+    const body = JSON.stringify(requestBody);
+    const doFetch = async () => this.fetchWithTimeout(
       `${this.localServerUrl}/detect`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        headers: await localServerHeaders({ 'Content-Type': 'application/json' }),
+        body
       },
       8000,  // longer timeout — server may be chunking + batching long inputs
       signal
     );
+    let response = await doFetch();
+    if (response.status === 401 && veilAuthRequired) {
+      await refreshServerToken();
+      response = await doFetch();
+    }
 
     if (!response.ok) {
       throw new Error(`GLiNER2 server returned status ${response.status}`);
@@ -1046,12 +1108,18 @@ class GLiNERDetector {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     try {
-      const response = await fetch(`${this.localServerUrl}/classify`, {
+      const body = JSON.stringify({ text });
+      const doFetch = async () => fetch(`${this.localServerUrl}/classify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        headers: await localServerHeaders({ 'Content-Type': 'application/json' }),
+        body,
         signal: controller.signal,
       });
+      let response = await doFetch();
+      if (response.status === 401 && veilAuthRequired) {
+        await refreshServerToken();
+        response = await doFetch();
+      }
       if (!response.ok) return null;
       const data = await response.json();
       return data?.ok ? { sensitivity: data.sensitivity, score: data.score, label: data.label } : null;
@@ -1150,6 +1218,7 @@ async function checkServerHealthAndNotify() {
     if (response.ok) {
       const data = await response.json();
       isHealthy = Boolean(data?.ok);
+      veilAuthRequired = Boolean(data?.authRequired);
     }
   } catch { /* server unreachable */ }
 

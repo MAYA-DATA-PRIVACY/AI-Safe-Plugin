@@ -846,10 +846,27 @@ def restart_server(
     )
 
 
+def get_server_token() -> Dict[str, Any]:
+    """Return the local server's shared token so the extension can authenticate
+    its detection requests. The server writes this file with 0600 permissions."""
+    token_file = RUNTIME_DIR / "server_token"
+    try:
+        token = token_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return {"success": False, "error": "token_unavailable"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    if not token:
+        return {"success": False, "error": "token_unavailable"}
+    return {"success": True, "token": token}
+
+
 def handle_request(request: Dict[str, Any]) -> Dict[str, Any]:
     action = request.get("action")
     if action == "status":
         return server_status()
+    if action == "get_server_token":
+        return get_server_token()
     if action == "start":
         return start_server(
             install_deps=bool(request.get("installDeps", True)),

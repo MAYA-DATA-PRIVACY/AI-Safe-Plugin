@@ -51,6 +51,23 @@ def test_read_process_state_reads_existing_json(runtime_paths):
     assert native_host.read_process_state() == {"pid": 5678, "session_id": "abc"}
 
 
+def test_get_server_token_returns_token_when_present(runtime_paths):
+    native_host.ensure_runtime_dirs()
+    (native_host.RUNTIME_DIR / "server_token").write_text("deadbeef\n", encoding="utf-8")
+
+    result = native_host.handle_request({"action": "get_server_token"})
+
+    assert result == {"success": True, "token": "deadbeef"}
+
+
+def test_get_server_token_reports_unavailable_when_missing(runtime_paths):
+    native_host.ensure_runtime_dirs()
+
+    result = native_host.get_server_token()
+
+    assert result == {"success": False, "error": "token_unavailable"}
+
+
 def test_read_bundle_release_info_reads_installed_bundle_metadata(runtime_paths):
     native_host.ensure_runtime_dirs()
     native_host.RELEASE_INFO_FILE.write_text(

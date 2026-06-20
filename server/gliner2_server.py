@@ -9,8 +9,10 @@ endpoint from local `.env`.
 
 import argparse
 import atexit
+import hmac
 import json
 import os
+import secrets
 import socket
 import sys
 import threading
@@ -97,6 +99,7 @@ ENV_FILE = REPO_DIR / ".env"
 RUNTIME_DIR = REPO_DIR / ".runtime"
 PROCESS_LOCK_FILE = RUNTIME_DIR / "server_process.lock"
 PROCESS_STATE_FILE = RUNTIME_DIR / "server_process.json"
+SERVER_TOKEN_FILE = RUNTIME_DIR / "server_token"
 ANON_ENDPOINT_ENV_KEY = "MDP_ANONYMIZATION_ENDPOINT"
 DEFAULT_ANONYMIZATION_ENDPOINT = "https://app.mayadataprivacy.in/mdp/engine/anonymization"
 ANON_REQUEST_TIMEOUT_SEC = 10.0
@@ -189,6 +192,38 @@ def resolve_anonymization_endpoint() -> str:
 
 def ensure_runtime_dir() -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_or_create_token() -> str:
+    """Return the shared server token, generating and persisting one if absent.
+
+    The token gates the detection endpoints so that only the Veil extension (which
+    fetches it through the native messaging host) can call them. It is stored in
+    RUNTIME_DIR with 0600 permissions on POSIX; an existing valid token is reused so
+    that server restarts do not invalidate already-configured clients.
+    """
+    ensure_runtime_dir()
+    try:
+        existing = SERVER_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    token = secrets.token_hex(32)
+    try:
+        # Create with restrictive permissions from the start on POSIX.
+        fd = os.open(str(SERVER_TOKEN_FILE), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, token.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except Exception:
+        # Fallback (e.g. Windows, where mode bits are ignored): plain write.
+        SERVER_TOKEN_FILE.write_text(token, encoding="utf-8")
+    return token
 
 
 def load_process_state() -> Dict[str, Any]:
@@ -898,20 +933,63 @@ class GLiNERService:
             return {"error": str(exc)}
 
 
-def make_handler(service: GLiNERService, max_chars: int):
+def make_handler(
+    service: GLiNERService,
+    max_chars: int,
+    *,
+    auth_token: Optional[str] = None,
+    allowed_host: str = "127.0.0.1",
+    extra_allowed_origins: Tuple[str, ...] = (),
+):
     class Handler(BaseHTTPRequestHandler):
+        # Honour a per-request socket timeout so a slow/idle client cannot pin a
+        # worker thread indefinitely (BaseHTTPRequestHandler reads this attribute).
+        timeout = 30
+
         def _origin_header(self) -> str:
             return str(self.headers.get("Origin", "")).strip().replace("\r", "").replace("\n", "")
 
         def _is_allowed_origin(self, origin: str) -> bool:
+            # Only the browser extension may call the API from a page context. The
+            # shared token (auth_token) is the real gate for non-browser clients;
+            # CORS stays least-privilege. Power users can widen this via
+            # VEIL_EXTRA_ALLOWED_ORIGINS (exact origins).
             if (
                 origin.startswith("chrome-extension://")
                 or origin.startswith("moz-extension://")
-                or origin in ("http://localhost", "https://localhost",
-                               "http://127.0.0.1", "https://127.0.0.1")
-                or origin.startswith("http://localhost:")
-                or origin.startswith("http://127.0.0.1:")
+                or origin in extra_allowed_origins
             ):
+                return True
+            return False
+
+        def _is_allowed_host(self) -> bool:
+            # DNS-rebinding defence: only accept loopback names or the bound host.
+            raw = str(self.headers.get("Host", "")).strip()
+            if not raw:
+                return True
+            host = raw
+            if host.startswith("["):  # bracketed IPv6, e.g. [::1]:8765
+                host = host[1:].split("]", 1)[0]
+            elif ":" in host:
+                host = host.rsplit(":", 1)[0]
+            host = host.strip().lower()
+            return host in ("127.0.0.1", "localhost", "::1", str(allowed_host).lower())
+
+        def _reject_forbidden_host(self) -> bool:
+            if not self._is_allowed_host():
+                self._write_json({"ok": False, "error": "Forbidden host."}, status_code=403)
+                return True
+            return False
+
+        def _reject_unauthorized(self) -> bool:
+            if auth_token is None:
+                return False
+            provided = str(self.headers.get("X-Veil-Token", ""))
+            if not hmac.compare_digest(provided, auth_token):
+                self._write_json(
+                    {"ok": False, "error": "Missing or invalid Veil token."},
+                    status_code=401,
+                )
                 return True
             return False
 
@@ -969,11 +1047,15 @@ def make_handler(service: GLiNERService, max_chars: int):
             return json.loads(raw)
 
         def do_OPTIONS(self) -> None:  # noqa: N802
+            if self._reject_forbidden_host():
+                return
             if self._reject_forbidden_origin():
                 return
             self._write_json({}, status_code=204)
 
         def do_GET(self) -> None:  # noqa: N802
+            if self._reject_forbidden_host():
+                return
             if self._reject_forbidden_origin():
                 return
             path = urlparse(self.path).path
@@ -988,13 +1070,18 @@ def make_handler(service: GLiNERService, max_chars: int):
                         "loaded": service.model is not None,
                         "anonymizationProxy": True,
                         "anonymizationEndpointConfigured": bool(resolve_anonymization_endpoint()),
+                        "authRequired": auth_token is not None,
                     }
                 )
                 return
             self._write_json({"ok": False, "error": "Not found"}, status_code=404)
 
         def do_POST(self) -> None:  # noqa: N802
+            if self._reject_forbidden_host():
+                return
             if self._reject_forbidden_origin():
+                return
+            if self._reject_unauthorized():
                 return
             path = urlparse(self.path).path
 
@@ -1114,7 +1201,19 @@ def parse_args() -> argparse.Namespace:
         help="Do not load model at startup. Load only on first /detect request.",
     )
     parser.add_argument("--download-only", action="store_true", help="Download/cache model and exit")
+    parser.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="Disable shared-token auth on detection endpoints (also via VEIL_NO_AUTH=1).",
+    )
     return parser.parse_args()
+
+
+def resolve_extra_allowed_origins() -> Tuple[str, ...]:
+    raw = str(os.environ.get("VEIL_EXTRA_ALLOWED_ORIGINS", "")).strip()
+    if not raw:
+        return ()
+    return tuple(o.strip() for o in raw.split(",") if o.strip())
 
 
 def main() -> None:
@@ -1158,7 +1257,17 @@ def main() -> None:
     else:
         print("Lazy-load mode enabled: ONNX model loads on first detection request.")
 
-    handler = make_handler(service, args.max_chars)
+    auth_disabled = args.no_auth or os.environ.get("VEIL_NO_AUTH") == "1"
+    auth_token = None if auth_disabled else load_or_create_token()
+    if auth_token is None:
+        print("Token auth disabled (--no-auth/VEIL_NO_AUTH); detection endpoints are unauthenticated.")
+    handler = make_handler(
+        service,
+        args.max_chars,
+        auth_token=auth_token,
+        allowed_host=args.host,
+        extra_allowed_origins=resolve_extra_allowed_origins(),
+    )
     server = ThreadingHTTPServer((args.host, args.port), handler)
     mark_process_state(
         "running",
