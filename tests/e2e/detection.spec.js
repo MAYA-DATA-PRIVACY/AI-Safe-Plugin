@@ -1255,3 +1255,43 @@ test.describe('Accessibility (U8)', () => {
         await page.close();
     });
 });
+
+test.describe('First-run Playground (U6)', () => {
+    let offlineServer;
+
+    test.beforeEach(async () => {
+        // Unhealthy server → the content controller falls back to regex detection,
+        // which catches the synthetic secrets in the sample text without a model.
+        offlineServer = await startMockServer({
+            port: OFFLINE_SERVER_PORT,
+            healthy: false,
+            loaded: false,
+            detections: [],
+        });
+    });
+
+    test.afterEach(async () => {
+        if (offlineServer) await stopMockServer(offlineServer);
+        offlineServer = null;
+    });
+
+    test('playground page boots the real detector and protects sample text offline', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, OFFLINE_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/playground.html`);
+        await page.waitForLoadState('domcontentloaded');
+
+        // Insert the synthetic sample — this fills the contenteditable and fires input.
+        await page.locator('#insertSampleBtn').click();
+
+        // The real content.js controller booted on the extension page and detected:
+        // the field badge appears, and at least one value is redacted.
+        await expect(page.locator('.ps-field-badge')).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('.ps-redaction, .ps-overlay-hl-redacted, .ps-token-chip').first())
+            .toBeVisible({ timeout: 10000 });
+
+        await page.close();
+    });
+});

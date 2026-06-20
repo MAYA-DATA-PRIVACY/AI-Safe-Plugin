@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added a first-run interactive playground: a built-in "try it" page (linked from the end of onboarding and the options About section) where new users can insert synthetic sample text and watch AI-Safe Plugin detect, underline, and redact it — using the real in-page engine, without visiting any third-party site and without sending anything anywhere.
 - Accessibility pass on the in-page UI: the field badge is now a keyboard-operable button (Tab to it, Enter/Space opens the panel) with a screen-reader label that reflects its state; the detection panel is a focus-trapped dialog that closes on Escape and returns focus to the badge; status changes like "N items protected" are announced through an ARIA live region; toasts and token-tray chips carry proper roles/labels; and all animation continues to respect the reduced-motion setting.
 - Added keyboard shortcuts: `Alt+Shift+R` redacts all detections in the focused field, and `Alt+Shift+V` toggles AI-Safe Plugin off/on for the current site using the per-site exclude list.
 - Added per-site quick controls to the popup: the current host can be paused for one hour or turned off/on directly, backed by `excludedSites` and `siteSnoozes` storage that content scripts honor live.

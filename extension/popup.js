@@ -2212,6 +2212,10 @@ class OnboardingWizard {
     on('onboardingSkipServer', () => this._finish());
     on('onboardingNextBtn0', () => this._goToStep(1));
     on('onboardingDoneBtn', () => this._finish());
+    on('onboardingTryItBtn', () => {
+      this._finish();
+      try { chrome.tabs.create({ url: chrome.runtime.getURL('playground.html') }); } catch { }
+    });
 
     on('onboardingCopyCmd', async () => {
       const cmd = document.getElementById('onboardingInstallCmd')?.textContent.trim() || '';
