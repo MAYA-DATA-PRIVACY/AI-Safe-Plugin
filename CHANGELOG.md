@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Brought back the hover popover on detection underlines: hovering an unredacted detection now shows a small card with the detection type, a one-line explanation of why it matters, and Redact / Dismiss actions — so the colored underlines are self-explanatory. The card works on rich-editor (ChatGPT/Gemini/Claude-style) fields, closes on Escape or pointer-out, and respects reduced-motion.
 - Added a "Delete all Veil data" control in the Advanced settings. A two-click confirm fully clears all browser-local Veil data — settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats — then restores defaults.
 - Published the Veil privacy policy at `docs/PRIVACY_POLICY.md`, linked from the extension's About section and the README.
 

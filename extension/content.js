@@ -92,6 +92,38 @@ function isStaticRedactionToken(value) {
   return /^\[[A-Z0-9_ -]+ REDACTED\]$/.test(String(value || '').trim());
 }
 
+// One-line "why this matters" copy per detection label, shown in the hover
+// popover (U2). Keys mirror getMaskText's label map; unknown labels fall back to
+// LABEL_EXPLANATION_FALLBACK.
+const LABEL_EXPLANATIONS = {
+  person: 'Names can identify you or others and link activity back to a real person.',
+  email: 'Email addresses can identify you and invite spam or phishing.',
+  phone: 'Phone numbers can identify you and enable unwanted contact.',
+  address: 'Physical addresses reveal where you live or work.',
+  ssn: 'Social Security numbers enable identity theft — never share them.',
+  credit_card: 'Card numbers can be used for fraud if exposed.',
+  date_of_birth: 'A date of birth helps others verify or impersonate your identity.',
+  location: 'Locations can reveal where you are or frequent.',
+  organization: 'Organization names can reveal your employer or affiliations.',
+  api_key: 'API keys grant access to your accounts and services — treat as secrets.',
+  ip_address: 'IP addresses can approximate your location and identify your network.',
+  jwt: 'JWTs are session credentials that can be replayed to impersonate you.',
+  pan: 'A PAN is a government identifier that can enable financial fraud.',
+  aadhaar: 'Aadhaar numbers are sensitive national IDs — avoid sharing them.',
+  passport: 'Passport numbers are strong identity documents and enable fraud.',
+  ifsc: 'IFSC codes identify bank branches used for transfers.',
+  driver_license: 'Driver license numbers are identity documents that enable fraud.',
+  bank_account: 'Bank account numbers can be used for fraud or unwanted transfers.',
+  oauth_token: 'OAuth tokens grant access to your accounts — treat as secrets.',
+  mac_address: 'MAC addresses can uniquely identify your device.',
+  employee_id: 'Employee IDs can link activity to you within an organization.',
+  device_id: 'Device IDs can uniquely identify and track your hardware.',
+  session_id: 'Session IDs can be replayed to hijack your logged-in session.',
+  private_key: 'Private keys grant full access to encrypted data and systems.',
+  connection_string: 'Connection strings often embed database credentials.'
+};
+const LABEL_EXPLANATION_FALLBACK = 'This looks like sensitive information you may not want to share.';
+
 // ── Selectors that identify known LLM assistant / thread areas so Veil never
 // scans or mutates provider-owned conversation history. ─────────────────────
 const ASSISTANT_RESPONSE_SELECTORS = [
@@ -163,7 +195,10 @@ class VeilContentController {
     this.siteRedactCount = 0;
 
     this.activePopover = null;
-    this.activePopoverHideTimer = null;
+    this.activePopoverState = null;   // { element, itemIndex, anchorRect } for the open card
+    this.popoverOpenTimer = 0;
+    this.popoverHideTimer = 0;
+    this._popoverKeydown = null;
     this.activeRevealOverlay = null;
     this.activeRevealState = null;
     this.revealOpenTimer = 0;
@@ -582,6 +617,7 @@ class VeilContentController {
     this.repositionTokenTrays();
     this._refreshAllOverlays();
     this.refreshRevealOverlayPosition();
+    this.refreshPopoverPosition();
     this.cleanupOrphanedUIElements();
   }
 
@@ -2785,6 +2821,9 @@ class VeilContentController {
             typographySource: span,
           });
         }
+      } else {
+        // Pre-redaction underline → show the explanatory popover (U2).
+        this.beginPopoverHover({ element, itemIndex: index, anchorRect });
       }
     });
 
@@ -2794,7 +2833,14 @@ class VeilContentController {
       // Skip if the pointer is still within the same span (moving between child nodes)
       if (span.contains(event.relatedTarget)) return;
       const index = parseInt(span.getAttribute('data-index'), 10);
-      if (this.shouldKeepRevealOpen(event.relatedTarget, element, Number.isNaN(index) ? null : index)) return;
+      const idx = Number.isNaN(index) ? null : index;
+      if (span.classList.contains('ps-pii-underline')) {
+        // Pre-redaction underline → close the popover unless the pointer moved onto it.
+        this.cancelPopoverOpen();
+        if (!this.shouldKeepPopoverOpen(event.relatedTarget, element, idx)) this.schedulePopoverHide();
+        return;
+      }
+      if (this.shouldKeepRevealOpen(event.relatedTarget, element, idx)) return;
       this.scheduleRevealHide();
     });
   }
@@ -2920,15 +2966,209 @@ class VeilContentController {
   // Popover (per-span anchored tooltip – Grammarly-style)
   // ═══════════════════════════════════════════════════════════
 
-  // anchorRect: pre-captured getBoundingClientRect() from the hover event.
-  // Passing it avoids relying on the span still being in the DOM by the time
-  // requestAnimationFrame fires (rich editors may reconcile in between).
-  // Popover removed — actions (redact/restore) are accessible via token tray chips and
-  // the inline click handler on detection spans. showPopover is kept as a no-op so any
-  // remaining call sites are safe.
-  showPopover(_anchorSpan, _element, _index, _mode, _anchorRect = null) {}
+  // anchorRect is captured synchronously from the hover event so positioning does
+  // not depend on the underline span still being in the DOM when rAF fires (rich
+  // editors may reconcile in between) — same strategy as the reveal overlay.
+  beginPopoverHover({ element, itemIndex, anchorRect }) {
+    const item = this.redactions.get(element)?.items?.[itemIndex];
+    if (!item || item.redacted) return;  // popover is for pre-redaction underlines only
+
+    this.cancelPopoverClose();
+    this.cancelPopoverOpen();
+
+    const show = () => {
+      const current = this.redactions.get(element)?.items?.[itemIndex];
+      if (!current || current.redacted) {
+        this.hidePopover();
+        return;
+      }
+      this.activePopoverState = { element, itemIndex, anchorRect };
+      this.showPopover(element, itemIndex, anchorRect);
+    };
+
+    if (this.activePopoverState?.element === element && this.activePopoverState?.itemIndex === itemIndex) {
+      show();
+      return;
+    }
+    this.popoverOpenTimer = setTimeout(() => {
+      this.popoverOpenTimer = 0;
+      show();
+    }, 250);
+  }
+
+  showPopover(element, itemIndex, anchorRect) {
+    if (!anchorRect) return;
+    const item = this.redactions.get(element)?.items?.[itemIndex];
+    if (!item || item.redacted) return;
+
+    let card = this.activePopover;
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'ps-popover';
+      card.setAttribute('role', 'dialog');
+      card.addEventListener('mouseenter', () => this.cancelPopoverClose());
+      card.addEventListener('mouseleave', (event) => {
+        const st = this.activePopoverState;
+        if (st && this.shouldKeepPopoverOpen(event.relatedTarget, st.element, st.itemIndex)) return;
+        this.schedulePopoverHide();
+      });
+      document.body.appendChild(card);
+      this.activePopover = card;
+      // Close on Escape while the card is open.
+      this._popoverKeydown = (event) => { if (event.key === 'Escape') this.hidePopover(); };
+      document.addEventListener('keydown', this._popoverKeydown, true);
+    } else if (!card.isConnected) {
+      document.body.appendChild(card);
+    }
+
+    card.textContent = '';
+    card.style.setProperty('--detection-color', this.getTypeColor(item.label));
+
+    // Header: colored dot + human label + confidence-tier chip.
+    const header = document.createElement('div');
+    header.className = 'ps-popover-header';
+    const dot = document.createElement('span');
+    dot.className = 'ps-popover-dot';
+    header.appendChild(dot);
+    const title = document.createElement('span');
+    title.className = 'ps-popover-title';
+    title.textContent = this.formatLabel(item.label);
+    header.appendChild(title);
+    const tier = String(item.tier || '').toLowerCase();
+    if (tier === 'high' || tier === 'medium' || tier === 'low') {
+      const chip = document.createElement('span');
+      chip.className = `ps-popover-tier ps-popover-tier-${tier}`;
+      chip.textContent = `${tier} confidence`;
+      header.appendChild(chip);
+    }
+    card.appendChild(header);
+
+    // Explanation line.
+    const text = document.createElement('div');
+    text.className = 'ps-popover-text';
+    text.textContent = LABEL_EXPLANATIONS[item.label] || LABEL_EXPLANATION_FALLBACK;
+    card.appendChild(text);
+
+    // Actions: Redact (primary) + Dismiss. (U3 adds "Ignore on this site".)
+    const actions = document.createElement('div');
+    actions.className = 'ps-popover-actions';
+
+    const redactBtn = document.createElement('button');
+    redactBtn.type = 'button';
+    redactBtn.className = 'ps-popover-btn ps-popover-btn-primary';
+    redactBtn.textContent = 'Redact';
+    redactBtn.setAttribute('aria-label', `Redact ${this.formatLabel(item.label)}`);
+    redactBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.redactSingle(element, itemIndex);
+      this.hidePopover();
+    });
+    actions.appendChild(redactBtn);
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'ps-popover-btn ps-popover-btn-dismiss';
+    dismissBtn.textContent = 'Dismiss';
+    dismissBtn.setAttribute('aria-label', `Dismiss ${this.formatLabel(item.label)}`);
+    dismissBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.dismissDetection(element, itemIndex);
+      this.hidePopover();
+    });
+    actions.appendChild(dismissBtn);
+
+    card.appendChild(actions);
+
+    this.positionPopover(anchorRect);
+    requestAnimationFrame(() => {
+      if (this.activePopover === card) card.classList.add('ps-popover-visible');
+    });
+  }
+
+  positionPopover(anchorRect) {
+    const card = this.activePopover;
+    if (!card || !anchorRect) return;
+    const margin = 12;
+    const spacing = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = card.offsetWidth || 1;
+    const h = card.offsetHeight || 1;
+
+    let left = anchorRect.left + (anchorRect.width / 2) - (w / 2);
+    left = Math.max(margin, Math.min(left, vw - w - margin));
+
+    // Prefer below the underline (Grammarly-style); flip above when there's no room.
+    let top = anchorRect.bottom + spacing;
+    if (top + h > vh - margin) top = anchorRect.top - h - spacing;
+    top = Math.max(margin, Math.min(top, vh - h - margin));
+
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top = `${Math.round(top)}px`;
+  }
+
+  refreshPopoverPosition() {
+    const st = this.activePopoverState;
+    if (!st || !this.activePopover) return;
+    const item = this.redactions.get(st.element)?.items?.[st.itemIndex];
+    if (!item || item.redacted) {
+      this.hidePopover();
+      return;
+    }
+    const rect = this.getRevealAnchorRect(st.element, st.itemIndex);
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      this.hidePopover();
+      return;
+    }
+    st.anchorRect = rect;
+    this.positionPopover(rect);
+  }
+
+  cancelPopoverOpen() {
+    if (this.popoverOpenTimer) {
+      clearTimeout(this.popoverOpenTimer);
+      this.popoverOpenTimer = 0;
+    }
+  }
+
+  cancelPopoverClose() {
+    if (this.popoverHideTimer) {
+      clearTimeout(this.popoverHideTimer);
+      this.popoverHideTimer = 0;
+    }
+  }
+
+  schedulePopoverHide(delay = 150) {
+    this.cancelPopoverOpen();
+    this.cancelPopoverClose();
+    this.popoverHideTimer = setTimeout(() => {
+      this.popoverHideTimer = 0;
+      this.hidePopover();
+    }, delay);
+  }
+
+  shouldKeepPopoverOpen(target, element, itemIndex) {
+    if (!target) return false;
+    if (this.activePopover?.contains?.(target)) return true;
+    if (!(target instanceof Element)) return false;
+    if (itemIndex != null) {
+      // Overlay-highlight (hostile editors) lives on document.body, not inside element.
+      if (target.closest(`.ps-overlay-hl[data-item-index="${itemIndex}"]`)) return true;
+      if (element?.contains?.(target) && target.closest(`.ps-pii-underline[data-index="${itemIndex}"]`)) return true;
+    }
+    return false;
+  }
 
   hidePopover() {
+    this.cancelPopoverOpen();
+    this.cancelPopoverClose();
+    this.activePopoverState = null;
+    if (this._popoverKeydown) {
+      document.removeEventListener('keydown', this._popoverKeydown, true);
+      this._popoverKeydown = null;
+    }
     if (!this.activePopover) return;
     this.activePopover.classList.remove('ps-popover-visible');
     const old = this.activePopover;
@@ -3263,17 +3503,31 @@ class VeilContentController {
     hl.addEventListener('mouseenter', () => {
       const index = Number(hl.dataset.itemIndex);
       if (!Number.isInteger(index)) return;
-      this.beginRevealHover({
-        element,
-        itemIndex: index,
-        anchorRect: hl.getBoundingClientRect(),
-        typographySource: element,
-        anchorKey: hl.dataset.overlayKey || null,
-      });
+      const anchorRect = hl.getBoundingClientRect();
+      const item = this.redactions.get(element)?.items?.[index];
+      if (item && !item.redacted) {
+        // Pre-redaction highlight → explanatory popover (U2).
+        this.beginPopoverHover({ element, itemIndex: index, anchorRect });
+      } else {
+        this.beginRevealHover({
+          element,
+          itemIndex: index,
+          anchorRect,
+          typographySource: element,
+          anchorKey: hl.dataset.overlayKey || null,
+        });
+      }
     });
     hl.addEventListener('mouseleave', (event) => {
       const index = Number(hl.dataset.itemIndex);
-      if (this.shouldKeepRevealOpen(event.relatedTarget, element, Number.isInteger(index) ? index : null)) {
+      const idx = Number.isInteger(index) ? index : null;
+      const item = idx != null ? this.redactions.get(element)?.items?.[idx] : null;
+      if (item && !item.redacted) {
+        this.cancelPopoverOpen();
+        if (!this.shouldKeepPopoverOpen(event.relatedTarget, element, idx)) this.schedulePopoverHide();
+        return;
+      }
+      if (this.shouldKeepRevealOpen(event.relatedTarget, element, idx)) {
         return;
       }
       this.scheduleRevealHide();
@@ -3345,19 +3599,6 @@ class VeilContentController {
     }
     return null;
   }
-
-  schedulePopoverHide() {
-    this.cancelPopoverHide();
-    this.activePopoverHideTimer = setTimeout(() => this.hidePopover(), 280);
-  }
-
-  cancelPopoverHide() {
-    if (this.activePopoverHideTimer) {
-      clearTimeout(this.activePopoverHideTimer);
-      this.activePopoverHideTimer = null;
-    }
-  }
-
 
   // ═══════════════════════════════════════════════════════════
   // Single-item Actions

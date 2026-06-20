@@ -748,3 +748,98 @@ test.describe('Field Status Badge', () => {
         await page.close();
     });
 });
+
+test.describe('Detection Popover (U2)', () => {
+    let mockServer;
+    const ONLINE_HOSTILE_SCROLL_URL = `${MOCK_SERVER_URL}${HOSTILE_SCROLL_PAGE_PATH}`;
+
+    test.beforeEach(async () => {
+        // Online model path leaves detections pending (underlined) rather than
+        // auto-redacting, so the explanatory popover is reachable.
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return {
+                        headers: cors,
+                        body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) },
+                    };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    async function openPopover(context, extensionId) {
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+        const page = await context.newPage();
+        await page.goto(ONLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('My name is Jane Doe');
+
+        const underline = page.locator('.ps-overlay-hl.ps-overlay-hl-underline').first();
+        await expect(underline).toBeVisible({ timeout: 8000 });
+        await underline.hover();
+
+        const popover = page.locator('.ps-popover.ps-popover-visible');
+        await expect(popover).toBeVisible({ timeout: 3000 });
+        return { page, popover };
+    }
+
+    test('hover on an underline shows a popover with the label and explanation', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await expect(popover.locator('.ps-popover-title')).toContainText('Person');
+        await expect(popover.locator('.ps-popover-text')).not.toBeEmpty();
+
+        await page.close();
+    });
+
+    test('Dismiss from the popover removes the detection and closes the card', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await popover.getByRole('button', { name: /Dismiss/ }).click();
+
+        await expect(page.locator('.ps-popover.ps-popover-visible')).toBeHidden({ timeout: 3000 });
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-underline')).toHaveCount(0, { timeout: 3000 });
+
+        await page.close();
+    });
+
+    test('Redact from the popover redacts the item and closes the card', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await popover.getByRole('button', { name: /Redact/ }).click();
+
+        await expect(page.locator('.ps-popover.ps-popover-visible')).toBeHidden({ timeout: 3000 });
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-redacted').first()).toBeVisible({ timeout: 3000 });
+
+        await page.close();
+    });
+
+    test('Escape closes the popover', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.ps-popover.ps-popover-visible')).toBeHidden({ timeout: 3000 });
+
+        await page.close();
+    });
+});
