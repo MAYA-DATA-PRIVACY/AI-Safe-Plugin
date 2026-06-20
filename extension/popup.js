@@ -44,12 +44,27 @@ const DEFAULT_SETTINGS = {
     'organization'
   ],
   monitoredSites: [
-    'claude.ai',
-    'gemini.google.com',
     'chatgpt.com',
     'chat.openai.com',
+    'claude.ai',
+    'gemini.google.com',
     'copilot.microsoft.com',
-    'poe.com'
+    'perplexity.ai',
+    'grok.com',
+    'x.ai',
+    'chat.deepseek.com',
+    'chat.mistral.ai',
+    'poe.com',
+    'character.ai',
+    'pi.ai',
+    'you.com',
+    'meta.ai',
+    'chat.qwen.ai',
+    'chat.qwenlm.ai',
+    'duck.ai',
+    'huggingface.co',
+    'phind.com',
+    't3.chat'
   ],
   monitoredSelectors: [
     'textarea',

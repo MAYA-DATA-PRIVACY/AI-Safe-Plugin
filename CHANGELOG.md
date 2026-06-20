@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Expanded the default monitored-sites list to cover today's major AI chat apps — ChatGPT, Claude, Gemini, Copilot, Perplexity, Grok, DeepSeek, Mistral Le Chat, Poe, Character.AI, Pi, You.com, Meta AI, Qwen, DuckDuckGo (duck.ai), Hugging Face, Phind, and T3 Chat — so scoped monitoring protects them out of the box. (With "monitor all sites" on by default, every site is already covered; this improves the allowlist used when you scope monitoring to specific sites.)
 - AI-Safe Plugin now initializes lazily on ordinary websites: on pages that aren't known AI chat apps, it does no work until you focus a text field, instead of always loading its model ping, observers, and polling on every page. Known AI sites (ChatGPT, Claude, Gemini) still activate immediately on load.
 
 ### Added

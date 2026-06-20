@@ -328,7 +328,13 @@ class AiSafePluginContentController {
           includeRegexWhenModelOnline: result.includeRegexWhenModelOnline ?? true,
           enabledTypes: result.enabledTypes ?? ['person', 'email', 'phone', 'address', 'ssn', 'credit_card'],
           monitorAllSites: result.monitorAllSites ?? true,
-          monitoredSites: result.monitoredSites ?? ['claude.ai', 'gemini.google.com', 'chatgpt.com'],
+          monitoredSites: result.monitoredSites ?? [
+            'chatgpt.com', 'chat.openai.com', 'claude.ai', 'gemini.google.com',
+            'copilot.microsoft.com', 'perplexity.ai', 'grok.com', 'x.ai',
+            'chat.deepseek.com', 'chat.mistral.ai', 'poe.com', 'character.ai',
+            'pi.ai', 'you.com', 'meta.ai', 'chat.qwen.ai', 'chat.qwenlm.ai',
+            'duck.ai', 'huggingface.co', 'phind.com', 't3.chat'
+          ],
           monitoredSelectors: Array.isArray(result.monitoredSelectors) && result.monitoredSelectors.length > 0
             ? result.monitoredSelectors
             : this.getPlatformSelectors(),
