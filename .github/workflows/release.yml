@@ -247,6 +247,25 @@ jobs:
       - name: Create stable Windows installer alias
         run: cp "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" dist/VeilSetup.exe
 
+      - name: Generate asset checksums
+        working-directory: dist
+        env:
+          RELEASE_VERSION: ${{ needs.verify-release-version.outputs.release_version }}
+        run: |
+          sha256sum \
+            "veil-extension-${RELEASE_VERSION}.zip" \
+            install.sh \
+            install.ps1 \
+            uninstall.sh \
+            uninstall.ps1 \
+            veil-backend-unix.tar.gz \
+            veil-backend-windows.zip \
+            veil-model-fp16.tar.gz \
+            "VeilSetup-${RELEASE_VERSION}.exe" \
+            VeilSetup.exe \
+            > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Compose release notes
         env:
           RELEASE_VERSION: ${{ needs.verify-release-version.outputs.release_version }}
@@ -277,3 +296,4 @@ jobs:
             dist/veil-model-fp16.tar.gz
             dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
             dist/VeilSetup.exe
+            dist/SHA256SUMS

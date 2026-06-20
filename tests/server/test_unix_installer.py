@@ -41,3 +41,23 @@ def test_uninstaller_waits_for_process_shutdown_and_retries_directory_removal():
     assert "remove_install_dir" in script
     assert 'wait_for_veil_shutdown "${INSTALL_DIR}" || true' in script
     assert 'remove_install_dir "${INSTALL_DIR}"' in script
+
+
+def test_unix_installer_verifies_asset_checksums():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    # Verification helper exists and fetches the release SHA256SUMS.
+    assert "verify_asset_checksum()" in script
+    assert "${RELEASE_BASE}/SHA256SUMS" in script
+    # Backend bundle is verified (hard) before extraction.
+    assert 'verify_asset_checksum "${ARCHIVE_PATH}" hard' in script
+    # Model is verified (soft) and only extracted when verification passes.
+    assert 'verify_asset_checksum "${MODEL_ARCHIVE}" soft' in script
+
+
+def test_unix_installer_warns_and_continues_when_sha256sums_missing():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "SHA256SUMS not available from release; skipping checksum verification" in script
+    # A hard mismatch aborts via fail(); missing sums returns 0 (continue).
+    assert "Checksum verification failed for ${asset_name}. Aborting install." in script

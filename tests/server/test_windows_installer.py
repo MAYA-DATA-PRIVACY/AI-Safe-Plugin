@@ -70,3 +70,23 @@ def test_windows_autostart_script_prints_powershell_safe_manual_start_guidance()
 
     assert "Manual start from PowerShell:" in script
     assert 'Start-Process "%VENV_PYTHON%" -ArgumentList' in script
+
+
+def test_install_veil_verifies_asset_checksums():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    # Verification helper exists, uses Get-FileHash, and fetches SHA256SUMS.
+    assert "function Test-VeilAssetChecksum" in script
+    assert "Get-FileHash -LiteralPath $AssetPath -Algorithm SHA256" in script
+    assert '"$ReleaseBase/SHA256SUMS"' in script
+    # Backend verified before extraction (hard — throws on failure).
+    assert "Test-VeilAssetChecksum -AssetPath $archivePath -ReleaseBase $releaseBase -TempRoot $tempRoot" in script
+    assert "Backend bundle checksum verification failed. Aborting install." in script
+    # Model verified before extraction (failure throws → HF fallback in catch).
+    assert "Test-VeilAssetChecksum -AssetPath $modelArchive -ReleaseBase $releaseBase -TempRoot $tempRoot" in script
+
+
+def test_install_veil_warns_and_continues_when_sha256sums_missing():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert "SHA256SUMS not available from release; skipping checksum verification" in script

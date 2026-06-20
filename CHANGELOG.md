@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The local server now requires a per-machine shared token on its detection endpoints (`/detect`, `/classify`, `/structure`, `/anonymize`). The server generates the token on startup and stores it with restricted permissions; the extension fetches it through the native messaging host and sends it as `X-Veil-Token`, so other local processes and localhost web pages can no longer drive detection. `/health` stays open and reports `authRequired`; auth can be disabled with `--no-auth` / `VEIL_NO_AUTH=1`.
 - Tightened the local server's CORS policy to browser-extension origins only (configurable via `VEIL_EXTRA_ALLOWED_ORIGINS`); localhost web pages are no longer allowed to call the API from the browser.
 - Added `Host`-header validation (loopback only) to defend against DNS rebinding, and a per-request socket timeout so a slow or idle client cannot tie up a server worker thread.
+- Releases now publish a `SHA256SUMS` file, and both installers verify downloaded assets against it: a backend-bundle mismatch aborts the install, a model mismatch falls back to the Hugging Face download, and a missing `SHA256SUMS` (older releases) warns and continues.
 - The local server no longer writes anonymisation response bodies to its logs. Anonymisation logging is now metadata-only by default (counts, status codes, and body sizes), so raw values returned by the Maya endpoint never reach the logs. Verbose logging can be restored for debugging by setting `VEIL_DEBUG_ANON_LOGS=1`.
 
 ### Added

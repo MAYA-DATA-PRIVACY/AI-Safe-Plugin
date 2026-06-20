@@ -20,6 +20,64 @@ fail() {
   exit 1
 }
 
+# Compute the SHA-256 of a file using whichever tool is available (Linux ships
+# sha256sum; macOS ships shasum). Prints the hex digest, or an empty string when
+# no tool is found.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo ""
+  fi
+}
+
+# verify_asset_checksum <downloaded_file> <hard|soft>
+# Verifies the file against the release's SHA256SUMS (downloaded once into
+# TMP_DIR). Missing SHA256SUMS or a missing tool → warn and continue (back-compat
+# with older releases). A mismatch aborts in "hard" mode (backend bundle) and
+# returns non-zero in "soft" mode (model, which has a HuggingFace fallback).
+verify_asset_checksum() {
+  local asset_path="$1"
+  local mode="${2:-hard}"
+  local asset_name
+  asset_name="$(basename "${asset_path}")"
+  local sums_file="${TMP_DIR}/SHA256SUMS"
+
+  if [[ ! -f "${sums_file}" ]]; then
+    if ! curl -fsSL "${RELEASE_BASE}/SHA256SUMS" -o "${sums_file}" 2>/dev/null; then
+      echo "Warning: SHA256SUMS not available from release; skipping checksum verification for ${asset_name}." >&2
+      return 0
+    fi
+  fi
+
+  local expected
+  expected="$(grep -E "[[:space:]]\*?${asset_name}\$" "${sums_file}" | head -n1 | awk '{print $1}')"
+  if [[ -z "${expected}" ]]; then
+    echo "Warning: ${asset_name} not listed in SHA256SUMS; skipping verification." >&2
+    return 0
+  fi
+
+  local actual
+  actual="$(sha256_of "${asset_path}")"
+  if [[ -z "${actual}" ]]; then
+    echo "Warning: no SHA-256 tool available; skipping verification for ${asset_name}." >&2
+    return 0
+  fi
+
+  if [[ "${actual}" == "${expected}" ]]; then
+    echo "Checksum verified: ${asset_name}"
+    return 0
+  fi
+
+  if [[ "${mode}" == "soft" ]]; then
+    echo "Warning: checksum verification failed for ${asset_name}; continuing." >&2
+    return 1
+  fi
+  fail "Checksum verification failed for ${asset_name}. Aborting install."
+}
+
 json_escape() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
@@ -258,6 +316,7 @@ trap cleanup EXIT
 
 echo "Downloading Veil backend bundle..."
 curl -fsSL "${RELEASE_BASE}/${ASSET_NAME}" -o "${ARCHIVE_PATH}"
+verify_asset_checksum "${ARCHIVE_PATH}" hard
 
 mkdir -p "${EXTRACT_DIR}" "${INSTALL_DIR}"
 tar -xzf "${ARCHIVE_PATH}" -C "${EXTRACT_DIR}"
@@ -308,13 +367,13 @@ if model_cache_present; then
   echo "Existing GLiNER2 model cache found; skipping download."
 else
   echo "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
-  if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1; then
+  if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1 && verify_asset_checksum "${MODEL_ARCHIVE}" soft; then
     echo "Extracting model..."
     mkdir -p "${MODEL_DEST}"
     tar -xzf "${MODEL_ARCHIVE}" -C "${MODEL_DEST}"
     echo "Model extracted to ${MODEL_DEST}"
   else
-    echo "Bundled model not found in release; downloading from HuggingFace Hub..."
+    echo "Bundled model unavailable or failed verification; downloading from HuggingFace Hub..."
     "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/server/gliner2_server.py" --download-only || echo "Warning: model download failed. It will download on first use."
   fi
 fi

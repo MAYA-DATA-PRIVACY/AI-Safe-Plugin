@@ -97,6 +97,16 @@ def test_release_workflow_builds_and_publishes_windows_setup():
     assert "dist/veil-model-fp16.tar.gz" in workflow
 
 
+def test_release_workflow_publishes_asset_checksums():
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    # A SHA256SUMS file is generated over the staged assets and uploaded.
+    assert "Generate asset checksums" in workflow
+    assert "sha256sum" in workflow
+    assert "> SHA256SUMS" in workflow
+    assert "dist/SHA256SUMS" in workflow
+
+
 def test_inno_setup_script_uses_branding_extension_id_capture_and_model_download_pages():
     script = ISS_PATH.read_text(encoding="utf-8")
 

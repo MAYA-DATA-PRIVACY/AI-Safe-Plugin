@@ -18,6 +18,52 @@ function Invoke-VeilCommand {
     }
 }
 
+# Verify a downloaded asset against the release's SHA256SUMS file. Returns $true
+# when the checksum matches, when SHA256SUMS is unavailable (older releases), or
+# when the asset is not listed (warn-and-continue). Returns $false only on a real
+# mismatch, so callers can decide whether to abort (backend) or fall back (model).
+function Test-VeilAssetChecksum {
+    param(
+        [Parameter(Mandatory = $true)][string]$AssetPath,
+        [Parameter(Mandatory = $true)][string]$ReleaseBase,
+        [Parameter(Mandatory = $true)][string]$TempRoot
+    )
+
+    $assetName = Split-Path -Leaf $AssetPath
+    $sumsFile = Join-Path $TempRoot "SHA256SUMS"
+
+    if (-not (Test-Path -LiteralPath $sumsFile)) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/SHA256SUMS" -OutFile $sumsFile
+        }
+        catch {
+            Write-Host "Warning: SHA256SUMS not available from release; skipping checksum verification for $assetName."
+            return $true
+        }
+    }
+
+    $expected = $null
+    foreach ($line in Get-Content -LiteralPath $sumsFile) {
+        $parts = $line -split '\s+\*?'
+        if ($parts.Length -ge 2 -and $parts[-1] -eq $assetName) {
+            $expected = $parts[0]
+            break
+        }
+    }
+    if (-not $expected) {
+        Write-Host "Warning: $assetName not listed in SHA256SUMS; skipping verification."
+        return $true
+    }
+
+    $actual = (Get-FileHash -LiteralPath $AssetPath -Algorithm SHA256).Hash
+    if ($actual -ieq $expected) {
+        Write-Host "Checksum verified: $assetName"
+        return $true
+    }
+    Write-Host "Checksum verification failed for $assetName."
+    return $false
+}
+
 function Get-VeilPythonVersion {
     param(
         [Parameter(Mandatory = $true)]
@@ -557,6 +603,9 @@ function global:Install-Veil {
         else {
             Write-Host "Downloading Veil backend bundle..."
             Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$assetName" -OutFile $archivePath
+            if (-not (Test-VeilAssetChecksum -AssetPath $archivePath -ReleaseBase $releaseBase -TempRoot $tempRoot)) {
+                throw "Backend bundle checksum verification failed. Aborting install."
+            }
             Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
 
             Remove-VeilInstallContents -InstallDir $InstallDir
@@ -603,12 +652,15 @@ function global:Install-Veil {
                 # Use .NET WebClient for large downloads — Invoke-WebRequest is very slow for big files
                 $wc = New-Object System.Net.WebClient
                 $wc.DownloadFile($modelUrl, $modelArchive)
+                if (-not (Test-VeilAssetChecksum -AssetPath $modelArchive -ReleaseBase $releaseBase -TempRoot $tempRoot)) {
+                    throw "Model checksum verification failed."
+                }
                 New-Item -ItemType Directory -Force -Path $modelDest | Out-Null
                 tar -xzf $modelArchive -C $modelDest
                 Write-Host "Model extracted to $modelDest"
             }
             catch {
-                Write-Host "Bundled model not found in release; downloading from HuggingFace Hub..."
+                Write-Host "Bundled model unavailable or failed verification; downloading from HuggingFace Hub..."
                 $venvPythonPreDl = Join-Path $InstallDir ".venv\Scripts\python.exe"
                 $serverScriptPreDl = Join-Path $InstallDir "server\gliner2_server.py"
                 try {
