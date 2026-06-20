@@ -2473,6 +2473,44 @@ class VeilContentController {
     }
   }
 
+  getCommandRedactTarget() {
+    const focused = Array.from(this.focusedElements).find((element) => (
+      this.monitoredElements.has(element) && this.redactions.has(element)
+    ));
+    if (focused) return focused;
+
+    for (const [element, state] of this.redactions.entries()) {
+      if (!this.monitoredElements.has(element)) continue;
+      if (!state?.items?.some((item) => item && !item.redacted)) continue;
+      return element;
+    }
+    return null;
+  }
+
+  handleCommandRedactAll() {
+    const target = this.getCommandRedactTarget();
+    if (!target) return { success: false, error: 'No pending detections.' };
+    this.redactAll(target);
+    return { success: true };
+  }
+
+  async handleCommandToggleSite() {
+    const host = normalizeSiteHost(window.location.hostname);
+    if (!host) return { success: false, error: 'No host for this page.' };
+
+    const result = await new Promise((resolve) => chrome.storage.local.get('excludedSites', resolve));
+    const sites = Array.isArray(result.excludedSites)
+      ? [...new Set(result.excludedSites.map((site) => normalizeSiteHost(site)).filter(Boolean))]
+      : [];
+    const currentlyExcluded = sites.includes(host);
+    const excludedSites = currentlyExcluded
+      ? sites.filter((site) => site !== host)
+      : [...sites, host];
+
+    await new Promise((resolve) => chrome.storage.local.set({ excludedSites }, resolve));
+    return { success: true, enabled: currentlyExcluded, excludedSites };
+  }
+
   restoreAll(element) {
     const state = this.redactions.get(element);
     if (!state) return;
@@ -4120,6 +4158,18 @@ class VeilContentController {
       this.showNotification('Local model back online — full AI detection active.', 'info');
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
       return false;
+    }
+
+    if (request?.action === 'commandRedactAll') {
+      sendResponse(this.handleCommandRedactAll());
+      return false;
+    }
+
+    if (request?.action === 'commandToggleSite') {
+      this.handleCommandToggleSite()
+        .then((response) => sendResponse(response))
+        .catch((error) => sendResponse({ success: false, error: error?.message || 'Toggle failed.' }));
+      return true;
     }
 
     if (request?.action !== 'getPageStats') return false;

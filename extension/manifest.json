@@ -53,6 +53,16 @@
     "page": "options.html",
     "open_in_tab": true
   },
+  "commands": {
+    "veil-redact-all": {
+      "suggested_key": { "default": "Alt+Shift+R" },
+      "description": "Redact all detections in the focused field"
+    },
+    "veil-toggle": {
+      "suggested_key": { "default": "Alt+Shift+V" },
+      "description": "Pause/resume Veil on this site"
+    }
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none';"
   }

@@ -1210,6 +1210,29 @@ async function broadcastToTabs(message) {
   } catch { /* ignore */ }
 }
 
+const COMMAND_ACTIONS = Object.freeze({
+  'veil-redact-all': 'commandRedactAll',
+  'veil-toggle': 'commandToggleSite'
+});
+
+async function sendCommandToActiveTab(action) {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tabs?.[0]?.id;
+    if (typeof tabId !== 'number') return;
+    chrome.tabs.sendMessage(tabId, { action }).catch(() => { });
+  } catch { /* ignore */ }
+}
+
+if (chrome.commands?.onCommand) {
+  chrome.commands.onCommand.addListener((command) => {
+    const action = COMMAND_ACTIONS[command];
+    if (action) {
+      sendCommandToActiveTab(action);
+    }
+  });
+}
+
 async function checkServerHealthAndNotify() {
   let isHealthy = false;
   try {

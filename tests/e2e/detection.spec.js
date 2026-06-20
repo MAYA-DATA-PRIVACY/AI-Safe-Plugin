@@ -193,6 +193,24 @@ async function sendDetectRequest(context, extensionId, text, options = {}) {
     ));
 }
 
+async function sendContentMessage(context, extensionId, pageUrl, message) {
+    return withExtensionPage(context, extensionId, (page) => page.evaluate(
+        ({ targetUrl, payload }) => new Promise((resolve) => {
+            chrome.tabs.query({}, (tabs) => {
+                const tab = tabs.find((entry) => entry.url === targetUrl);
+                if (!tab?.id) {
+                    resolve({ success: false, error: 'target tab not found' });
+                    return;
+                }
+                chrome.tabs.sendMessage(tab.id, payload, (response) => {
+                    resolve(response || { success: false, error: chrome.runtime.lastError?.message || 'no response' });
+                });
+            });
+        }),
+        { targetUrl: pageUrl, payload: message },
+    ));
+}
+
 async function readCapturedProviderPayload(page) {
     return page.evaluate(async () => {
         const response = await fetch('/provider-capture-last');
@@ -290,6 +308,56 @@ test.describe('Content-Script Detection', () => {
         await textarea.fill('My name is Jane Doe and my email is jane@example.com');
 
         await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        await page.close();
+    });
+
+    test('commandRedactAll redacts pending detections in the focused field', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+        await withExtensionPage(context, extensionId, (page) => page.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({ autoRedact: false }, resolve)),
+        ));
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe and my email is jane@example.com');
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        const response = await sendContentMessage(context, extensionId, CONTENT_PAGE_URL, { action: 'commandRedactAll' });
+        expect(response.success).toBeTruthy();
+        await expect(textarea).toHaveValue(/NAME.*REDACTED/, { timeout: 5000 });
+        await expect(textarea).toHaveValue(/EMAIL.*REDACTED/, { timeout: 5000 });
+
+        await page.close();
+    });
+
+    test('commandToggleSite updates excludedSites for the current host', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const first = await sendContentMessage(context, extensionId, CONTENT_PAGE_URL, { action: 'commandToggleSite' });
+        expect(first.success).toBeTruthy();
+        expect(first.enabled).toBe(false);
+        expect(first.excludedSites).toContain('127.0.0.1');
+
+        const stored = await withExtensionPage(context, extensionId, (extensionPage) => extensionPage.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.get('excludedSites', (result) => resolve(result.excludedSites || []))),
+        ));
+        expect(stored).toContain('127.0.0.1');
+
+        const second = await sendContentMessage(context, extensionId, CONTENT_PAGE_URL, { action: 'commandToggleSite' });
+        expect(second.success).toBeTruthy();
+        expect(second.enabled).toBe(true);
+        expect(second.excludedSites).not.toContain('127.0.0.1');
 
         await page.close();
     });

@@ -68,6 +68,7 @@ AI receives: "Hey, my name is [PERSON] and my SSN is [SSN REDACTED]"
 - **Works everywhere** - ChatGPT, Claude, Gemini, Perplexity, Notion, and any other site with text inputs or contentEditable fields.
 - **Regex fallback** - Built-in patterns catch API keys, JWTs, AWS credentials, SSNs, and more. Works instantly even without the local model.
 - **Custom patterns** - Add your own regex rules for internal IDs, project codes, or anything specific to your workflow.
+- **Keyboard shortcuts** - Use `Alt+Shift+R` to redact all detections in the focused field and `Alt+Shift+V` to pause or resume Veil on the current site.
 - **Adjustable sensitivity** - Low, Medium, or High detection thresholds depending on how aggressive you want the scanning to be.
 - **One-command install** - Single curl/PowerShell command sets up the local server, downloads the model, registers autostart, and you're done.
 - **Cross-platform** - Linux (systemd), macOS (launchd), and Windows (Task Scheduler) autostart out of the box.
