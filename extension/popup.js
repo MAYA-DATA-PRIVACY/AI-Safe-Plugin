@@ -456,7 +456,7 @@ class SettingsManager {
     document.getElementById('confirmAddEntityButton').addEventListener('click', () => this.addEntityTypeFromForm());
 
     document.getElementById('resetButton').addEventListener('click', () => this.resetDefaults());
-    document.getElementById('deleteAllDataButton')?.addEventListener('click', () => this.deleteAllAI-Safe PluginData());
+    document.getElementById('deleteAllDataButton')?.addEventListener('click', () => this.deleteAllAiSafePluginData());
 
     document.getElementById('refreshServerButton').addEventListener('click', async () => {
       await this.refreshServerStatus();
@@ -2103,7 +2103,7 @@ class SettingsManager {
    * window.confirm. After clearing, defaults are re-seeded; content scripts react to
    * the storage change via their chrome.storage.onChanged listener.
    */
-  async deleteAllAI-Safe PluginData() {
+  async deleteAllAiSafePluginData() {
     const btn = document.getElementById('deleteAllDataButton');
     if (!btn) return;
 

@@ -1,4 +1,4 @@
-(function initAI-Safe PluginPatternCatalog(root) {
+(function initAiSafePluginPatternCatalog(root) {
   const LEGACY_OPENAI_KEY_PATTERN = '\\bsk-[A-Za-z0-9]{20,}\\b';
 
   const DEFAULT_CUSTOM_PATTERNS = Object.freeze([
