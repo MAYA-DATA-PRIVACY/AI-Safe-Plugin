@@ -113,7 +113,10 @@ test.describe('Per-site Quick Controls', () => {
         const { context, extensionId } = extensionContext;
         const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
 
-        await page.locator('#siteToggleLabel').click();
+        await page.locator('#siteToggleButton').click();
+        await expect(page.locator('#siteToggleButton')).toHaveText('Turn on');
+        await expect(page.locator('#siteSnoozeStatus')).toHaveText('Off on this site');
+        await expect(page.locator('#pauseSiteButton')).toBeHidden();
         const excludedSites = await page.evaluate(() => new Promise((resolve) => {
             chrome.storage.local.get('excludedSites', (result) => resolve(result.excludedSites || []));
         }));
@@ -129,16 +132,30 @@ test.describe('Per-site Quick Controls', () => {
 
         await page.locator('#pauseSiteButton').click();
         await expect(page.locator('#siteSnoozeStatus')).toContainText('Paused');
+        await expect(page.locator('#pauseSiteButton')).toHaveText('Resume');
         const pausedUntil = await page.evaluate(() => new Promise((resolve) => {
             chrome.storage.local.get('siteSnoozes', (result) => resolve(result.siteSnoozes?.['127.0.0.1'] || 0));
         }));
         expect(pausedUntil).toBeGreaterThan(Date.now());
 
-        await page.locator('#resumeSiteButton').click();
+        await page.locator('#pauseSiteButton').click();
         const afterResume = await page.evaluate(() => new Promise((resolve) => {
             chrome.storage.local.get('siteSnoozes', (result) => resolve(result.siteSnoozes || {}));
         }));
         expect(afterResume['127.0.0.1']).toBeUndefined();
+
+        await page.close();
+        await target.close();
+    });
+
+    test('global Protection off disables site actions instead of showing conflicting controls', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
+
+        await page.locator('label.qs-toggle').filter({ has: page.locator('#enabledToggle') }).click();
+        await expect(page.locator('#siteSnoozeStatus')).toHaveText('Global protection is off');
+        await expect(page.locator('#pauseSiteButton')).toBeHidden();
+        await expect(page.locator('#siteToggleButton')).toBeDisabled();
 
         await page.close();
         await target.close();

@@ -1616,27 +1616,8 @@ a.maya-link:hover { text-decoration: underline; }
   flex-shrink: 0;
 }
 
-.site-control-actions .site-toggle {
-  gap: 6px;
-}
-
-.site-control-actions .qs-track {
-  width: 40px;
-  height: 24px;
-}
-
-.site-control-actions .qs-thumb {
-  left: 4px;
-  width: 12px;
-  height: 12px;
-}
-
-.site-control-actions .qs-checkbox:checked + .qs-track .qs-thumb {
-  transform: translateX(16px);
-}
-
-.site-control-actions .qs-label {
-  font-size: 12px;
+.site-control-actions .site-action-btn {
+  min-width: 72px;
   white-space: nowrap;
 }
 

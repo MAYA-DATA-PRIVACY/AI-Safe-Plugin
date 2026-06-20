@@ -325,6 +325,7 @@ class VeilContentController {
   async activateMonitoring(_reason = 'settings') {
     if (this.isEnabled) {
       this.findInputElements();
+      this.scanCurrentInputs('reactivate');
       return;
     }
 
@@ -338,6 +339,7 @@ class VeilContentController {
     await this.loadSiteAliasLedger();
     await this.loadSiteIgnoredValues();
     this.startMonitoring();
+    this.scanCurrentInputs('activate');
 
     // Rehydrate cached redactions
     this.rehydrateCachedRedactions();
@@ -788,6 +790,15 @@ class VeilContentController {
     });
   }
 
+  scanCurrentInputs(reason = 'reactivate') {
+    this.monitoredElements.forEach((_listeners, element) => {
+      const text = this.getRawElementText(element);
+      if (!text || text.trim().length < 1) return;
+      this.bumpInputRevision(element);
+      this.scheduleDetection(element, reason);
+    });
+  }
+
   startStateReconciler() {
     if (this.stateReconcileTimer) {
       clearInterval(this.stateReconcileTimer);
@@ -1106,7 +1117,7 @@ class VeilContentController {
     const targetRevision = this.getInputRevision(element);
     const delay = reason === 'blur'
       ? BLUR_DELAY_MS
-      : reason === 'paste'
+      : (reason === 'paste' || reason === 'activate' || reason === 'reactivate')
         ? PASTE_IDLE_DELAY_MS
         : TYPING_IDLE_DELAY_MS;
 

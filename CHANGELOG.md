@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Simplified the per-site popup controls so the site row uses contextual Pause/Resume and Turn on/off actions instead of a second switch, and re-scans existing fields immediately when site protection is restored.
 - Corrected store and in-app copy that claimed data "never leaves your machine" to accurately describe Veil as local detection by default, with optional Maya anonymisation only when the user enables it.
 - Replaced the "Veil / Scanning..." banner pill and the floating action bar with a single 26 px corner badge per field. The badge morphs between five states — idle monogram, spinning scanner, amber count of unredacted items, green check when all protected, and a fallback dot when the server is offline — so the field is never obscured while typing.
 - Clicking the badge opens a compact panel listing each detected item with individual redact, restore, and dismiss actions, plus "Redact all" and "Restore all" footer buttons. The panel replaces the old action bar entirely.

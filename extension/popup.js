@@ -359,15 +359,25 @@ class SettingsManager {
     const openSettings = () => chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
     document.getElementById('openSettingsTabBtn')?.addEventListener('click', openSettings);
     document.getElementById('anonymizeHintSettingsBtn')?.addEventListener('click', openSettings);
-    document.getElementById('siteToggleHere')?.addEventListener('change', (event) => {
-      this.setCurrentSiteEnabled(event.target.checked);
+    document.getElementById('siteToggleButton')?.addEventListener('click', () => {
+      const host = this.currentSiteHost;
+      const excluded = this.normalizeSiteList(this.settings.excludedSites).includes(host);
+      this.setCurrentSiteEnabled(excluded);
     });
-    document.getElementById('pauseSiteButton')?.addEventListener('click', () => this.pauseCurrentSite());
-    document.getElementById('resumeSiteButton')?.addEventListener('click', () => this.resumeCurrentSite());
+    document.getElementById('pauseSiteButton')?.addEventListener('click', () => {
+      const host = this.currentSiteHost;
+      const snoozed = Number(this.settings.siteSnoozes?.[host]) > Date.now();
+      if (snoozed) {
+        this.resumeCurrentSite();
+      } else {
+        this.pauseCurrentSite();
+      }
+    });
 
     document.getElementById('enabledToggle').addEventListener('change', (event) => {
       this.updateSetting('enabled', event.target.checked);
       this.renderStatus();
+      this.renderSiteControls();
     });
 
     document.getElementById('autoRedactToggle').addEventListener('change', (event) => {
@@ -689,27 +699,38 @@ class SettingsManager {
     if (!host) return;
 
     const hostNode = document.getElementById('currentSiteHost');
-    const toggle = document.getElementById('siteToggleHere');
     const pauseButton = document.getElementById('pauseSiteButton');
+    const toggleButton = document.getElementById('siteToggleButton');
     const snoozeStatus = document.getElementById('siteSnoozeStatus');
-    const resumeButton = document.getElementById('resumeSiteButton');
-    const label = document.getElementById('siteToggleLabelText');
     const excluded = this.normalizeSiteList(this.settings.excludedSites).includes(host);
     const until = Number(this.settings.siteSnoozes?.[host]) || 0;
     const snoozed = until > Date.now();
+    const globallyEnabled = Boolean(this.settings.enabled);
 
     if (hostNode) hostNode.textContent = host;
-    if (toggle) toggle.checked = !excluded;
-    if (label) label.textContent = excluded ? 'Off here' : 'On here';
-    if (pauseButton) pauseButton.disabled = snoozed;
     if (snoozeStatus) {
-      snoozeStatus.hidden = !snoozed;
-      if (snoozed) {
+      snoozeStatus.hidden = false;
+      if (!globallyEnabled) {
+        snoozeStatus.textContent = 'Global protection is off';
+      } else if (excluded) {
+        snoozeStatus.textContent = 'Off on this site';
+      } else if (snoozed) {
         const resumesAt = new Date(until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         snoozeStatus.textContent = `Paused · resumes ${resumesAt}`;
+      } else {
+        snoozeStatus.textContent = 'Active on this site';
       }
     }
-    if (resumeButton) resumeButton.hidden = !snoozed;
+    if (pauseButton) {
+      pauseButton.hidden = !globallyEnabled || excluded;
+      pauseButton.textContent = snoozed ? 'Resume' : 'Pause 1h';
+    }
+    if (toggleButton) {
+      toggleButton.disabled = !globallyEnabled;
+      toggleButton.textContent = excluded ? 'Turn on' : 'Turn off';
+      toggleButton.classList.toggle('secondary', excluded);
+      toggleButton.classList.toggle('ghost', !excluded);
+    }
 
     if (this.siteCountdownTimer) {
       clearInterval(this.siteCountdownTimer);
@@ -727,11 +748,14 @@ class SettingsManager {
     const host = this.currentSiteHost;
     if (!host) return;
     const sites = this.normalizeSiteList(this.settings.excludedSites);
+    const siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
+    delete siteSnoozes[host];
     const next = enabled
       ? sites.filter((site) => site !== host)
       : [...new Set([...sites, host])];
     this.settings.excludedSites = next;
-    chrome.storage.local.set({ excludedSites: next }, () => this.setMessage(enabled ? 'Veil enabled here.' : 'Veil paused on this site.'));
+    this.settings.siteSnoozes = siteSnoozes;
+    chrome.storage.local.set({ excludedSites: next, siteSnoozes }, () => this.setMessage(enabled ? 'Veil enabled here.' : 'Veil paused on this site.'));
     this.renderSiteControls();
   }
 
@@ -739,9 +763,11 @@ class SettingsManager {
     const host = this.currentSiteHost;
     if (!host) return;
     const siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
+    const excludedSites = this.normalizeSiteList(this.settings.excludedSites).filter((site) => site !== host);
     siteSnoozes[host] = Date.now() + SITE_SNOOZE_MS;
+    this.settings.excludedSites = excludedSites;
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('Veil paused here for 1 hour.'));
+    chrome.storage.local.set({ excludedSites, siteSnoozes }, () => this.setMessage('Veil paused here for 1 hour.'));
     this.renderSiteControls();
   }
 

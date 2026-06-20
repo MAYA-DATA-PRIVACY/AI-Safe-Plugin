@@ -277,7 +277,7 @@ test.describe('Content-Script Detection', () => {
         await page.close();
     });
 
-    test('excludedSites disables detection until the site is removed and reloaded', async ({ extensionContext }) => {
+    test('excludedSites disables and re-enables detection without reloading the tab', async ({ extensionContext }) => {
         const { context, extensionId } = extensionContext;
         await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
         await withExtensionPage(context, extensionId, (page) => page.evaluate(
@@ -302,10 +302,6 @@ test.describe('Content-Script Detection', () => {
         await withExtensionPage(context, extensionId, (extensionPage) => extensionPage.evaluate(
             () => new Promise((resolve) => chrome.storage.local.set({ excludedSites: [] }, resolve)),
         ));
-        await page.reload();
-        await page.waitForLoadState('domcontentloaded');
-        await textarea.click();
-        await textarea.fill('My name is Jane Doe and my email is jane@example.com');
 
         await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
 
