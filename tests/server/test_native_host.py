@@ -71,14 +71,14 @@ def test_get_server_token_reports_unavailable_when_missing(runtime_paths):
 def test_read_bundle_release_info_reads_installed_bundle_metadata(runtime_paths):
     native_host.ensure_runtime_dirs()
     native_host.RELEASE_INFO_FILE.write_text(
-        '{"tag":"v1.2.5","published_at":"2026-04-02T12:34:56Z","html_url":"https://github.com/Maya-Data-Privacy/Veil/releases/tag/v1.2.5","installed_at":"2026-04-02T12:40:00Z"}',
+        '{"tag":"v1.2.5","published_at":"2026-04-02T12:34:56Z","html_url":"https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/tag/v1.2.5","installed_at":"2026-04-02T12:40:00Z"}',
         encoding="utf-8",
     )
 
     assert native_host.read_bundle_release_info() == {
         "bundleReleaseTag": "v1.2.5",
         "bundleReleasePublishedAt": "2026-04-02T12:34:56Z",
-        "bundleReleaseUrl": "https://github.com/Maya-Data-Privacy/Veil/releases/tag/v1.2.5",
+        "bundleReleaseUrl": "https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/tag/v1.2.5",
         "bundleReleaseInstalledAt": "2026-04-02T12:40:00Z",
     }
 
@@ -95,7 +95,7 @@ def test_read_bundle_release_info_falls_back_to_unknown_for_invalid_json(runtime
     }
 
 
-def test_start_server_reports_port_conflict_for_non_veil_process(monkeypatch, runtime_paths):
+def test_start_server_reports_port_conflict_for_non_ai_safe_plugin_process(monkeypatch, runtime_paths):
     monkeypatch.setattr(native_host, "is_server_healthy", lambda: False)
     monkeypatch.setattr(native_host, "is_port_open", lambda host="127.0.0.1", port=8765: True)
     monkeypatch.setattr(native_host, "wait_for_health", lambda timeout=native_host.WAIT_SECONDS: False)
@@ -138,7 +138,7 @@ def test_server_status_treats_loading_tracked_process_as_owned(monkeypatch, runt
     assert result["processPhase"] == "loading_model"
 
 
-def test_stop_server_only_targets_tracked_veil_processes(monkeypatch, runtime_paths):
+def test_stop_server_only_targets_tracked_ai_safe_plugin_processes(monkeypatch, runtime_paths):
     stopped = []
     monkeypatch.setattr(native_host, "tracked_server_pids", lambda: [4242])
     monkeypatch.setattr(native_host, "kill_pid", lambda pid: stopped.append(pid) or True)
@@ -186,20 +186,20 @@ def test_is_pid_running_uses_windows_process_query(monkeypatch):
 
 
 def test_owned_server_command_matches_windows_autostart_wrapper(monkeypatch):
-    repo_dir = Path("C:/Users/example/AppData/Local/Veil")
+    repo_dir = Path("C:/Users/example/AppData/Local/AI-Safe Plugin")
     monkeypatch.setattr(native_host, "is_windows_platform", lambda: True)
     monkeypatch.setattr(native_host, "REPO_DIR", repo_dir)
     monkeypatch.setattr(native_host, "SCRIPT_PATH", repo_dir / "server" / "gliner2_server.py")
     monkeypatch.setattr(native_host, "AUTOSTART_WRAPPER_PATH", repo_dir / "server" / "autostart" / "start_server.cmd")
 
     assert native_host.is_owned_server_command(
-        r'cmd.exe /d /c "C:\Users\example\AppData\Local\Veil\server\autostart\start_server.cmd"'
+        r'cmd.exe /d /c "C:\Users\example\AppData\Local\AI-Safe Plugin\server\autostart\start_server.cmd"'
     )
     assert native_host.is_owned_server_command(
-        r'"C:\Users\example\AppData\Local\Veil\.venv\Scripts\python.exe" "C:\Users\example\AppData\Local\Veil\server\gliner2_server.py" --host 127.0.0.1 --port 8765'
+        r'"C:\Users\example\AppData\Local\AI-Safe Plugin\.venv\Scripts\python.exe" "C:\Users\example\AppData\Local\AI-Safe Plugin\server\gliner2_server.py" --host 127.0.0.1 --port 8765'
     )
     assert not native_host.is_owned_server_command(
-        r'"C:\other\Veil\.venv\Scripts\python.exe" "C:\other\Veil\server\gliner2_server.py"'
+        r'"C:\other\AI-Safe Plugin\.venv\Scripts\python.exe" "C:\other\AI-Safe Plugin\server\gliner2_server.py"'
     )
 
 

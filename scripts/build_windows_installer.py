@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble the Windows installer payload for Veil."""
+"""Assemble the Windows installer payload for AI-Safe Plugin."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ DIST = ROOT / "dist"
 STAGING_ROOT = DIST / "windows-installer"
 STAGE_DIR = STAGING_ROOT / "stage"
 METADATA_ISS = STAGING_ROOT / "metadata.iss"
-MODEL_ASSET_NAME = "veil-model-fp16.tar.gz"
+MODEL_ASSET_NAME = "ai-safe-plugin-model-fp16.tar.gz"
 BUNDLE_RELEASE_ARCNAME = Path(".runtime") / "bundle_release.json"
 COPY_PATHS = [
     ROOT / "server",
@@ -24,7 +24,7 @@ COPY_PATHS = [
     ROOT / ".python-version",
     ROOT / "LICENSE",
 ]
-REPO_SLUG = "Maya-Data-Privacy/Veil"
+REPO_SLUG = "Maya-Data-Privacy/AI-Safe-Plugin"
 
 
 def load_package_version() -> str:
@@ -34,11 +34,11 @@ def load_package_version() -> str:
 
 def build_release_metadata() -> dict[str, str]:
     version = load_package_version()
-    tag = str(os.environ.get("VEIL_RELEASE_TAG") or "").strip() or f"v{version}"
+    tag = str(os.environ.get("AI_SAFE_PLUGIN_RELEASE_TAG") or "").strip() or f"v{version}"
     return {
         "tag": tag,
-        "published_at": str(os.environ.get("VEIL_RELEASE_PUBLISHED_AT") or "").strip(),
-        "html_url": str(os.environ.get("VEIL_RELEASE_HTML_URL") or "").strip()
+        "published_at": str(os.environ.get("AI_SAFE_PLUGIN_RELEASE_PUBLISHED_AT") or "").strip(),
+        "html_url": str(os.environ.get("AI_SAFE_PLUGIN_RELEASE_HTML_URL") or "").strip()
         or f"https://github.com/{REPO_SLUG}/releases/tag/{tag}",
         "repository": REPO_SLUG,
     }
@@ -73,7 +73,7 @@ def write_metadata_iss() -> None:
     model_asset_url = f"https://github.com/{REPO_SLUG}/releases/download/{tag}/{MODEL_ASSET_NAME}"
     escaped_stage_dir = str(STAGE_DIR).replace("\\", "\\\\")
     lines = [
-        f'#define MyAppName "Veil"',
+        f'#define MyAppName "AI-Safe Plugin"',
         f'#define MyAppVersion "{version}"',
         f'#define MyAppPublisher "Maya Data Privacy"',
         f'#define MyAppCopyright "Copyright (c) Maya Data Privacy"',

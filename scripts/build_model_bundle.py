@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Download GLiNER2 fp16 ONNX model from HuggingFace and package as a release asset.
 
-Run during CI/release to produce dist/veil-model-fp16.tar.gz.
+Run during CI/release to produce dist/ai-safe-plugin-model-fp16.tar.gz.
 The install script downloads this tarball from the GitHub Release instead of
 pulling directly from HuggingFace Hub (which is slower and has no bandwidth SLA).
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
-MODEL_ARCHIVE = DIST / "veil-model-fp16.tar.gz"
+MODEL_ARCHIVE = DIST / "ai-safe-plugin-model-fp16.tar.gz"
 
 HF_REPO = "lmo3/gliner2-large-v1-onnx"
 PRECISION = "fp16"

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Veil Settings</title>
+  <title>AI-Safe Plugin Settings</title>
   <link rel="stylesheet" href="popup.css">
   <link rel="stylesheet" href="options.css">
 </head>
@@ -15,9 +15,9 @@
     <aside class="opt-sidebar">
 
       <div class="opt-brand">
-        <img src="assets/icons/veil-icon.svg" class="opt-brand-logo-img" alt="Veil" width="28" height="28" style="border-radius:6px">
+        <img src="assets/icons/ai-safe-plugin-icon.svg" class="opt-brand-logo-img" alt="AI-Safe Plugin" width="28" height="28" style="border-radius:6px">
         <div class="opt-brand-text">
-          <span class="opt-brand-name">Veil <span class="beta-badge" style="font-size:9px;vertical-align:middle">Beta</span></span>
+          <span class="opt-brand-name">AI-Safe Plugin <span class="beta-badge" style="font-size:9px;vertical-align:middle">Beta</span></span>
           <span class="opt-brand-tag">Privacy Guard</span>
         </div>
       </div>
@@ -48,7 +48,7 @@
           <span class="opt-update-pill" id="sidebarUpdatePill">Checking</span>
         </div>
         <div class="opt-update-title" id="sidebarUpdateTitle">Checking GitHub releases…</div>
-        <div class="opt-update-sub" id="sidebarUpdateSubtext">We’ll tell you here when a newer Veil extension build is available.</div>
+        <div class="opt-update-sub" id="sidebarUpdateSubtext">We’ll tell you here when a newer AI-Safe Plugin extension build is available.</div>
       </a>
 
       <nav class="opt-nav" aria-label="Settings sections">
@@ -85,7 +85,7 @@
           </svg>
           <span class="opt-version-lg" id="versionBadge">v1.1</span>
         </div>
-        <a href="https://github.com/Maya-data-privacy/veil" target="_blank" rel="noreferrer" class="opt-footer-link">
+        <a href="https://github.com/Maya-Data-Privacy/AI-Safe-Plugin" target="_blank" rel="noreferrer" class="opt-footer-link">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
           </svg>
@@ -148,7 +148,7 @@
           <div class="opt-card opt-update-notice" id="releaseNoticeCard" hidden>
             <div class="opt-update-notice-copy">
               <div class="opt-update-notice-badge" id="releaseNoticeBadge">Update available</div>
-              <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer Veil extension release is ready.</div>
+              <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer AI-Safe Plugin extension release is ready.</div>
               <p class="opt-update-notice-body" id="releaseNoticeBody">Install or reload the latest extension build, then refresh the local server bundle below so both stay in sync.</p>
             </div>
             <a id="releaseNoticeLink" href="#" target="_blank" rel="noreferrer" class="opt-update-notice-link">Open release</a>
@@ -194,7 +194,7 @@
             <p class="opt-notice-body">
               GLiNER2 runs once on <code>127.0.0.1:8765</code> and is shared across Chrome, Brave,
               Edge, and Vivaldi automatically. Using multiple browsers?
-              Open Veil in each browser once and run the install command shown there so that
+              Open AI-Safe Plugin in each browser once and run the install command shown there so that
               browser's extension ID is registered with the same local server.
             </p>
           </div>
@@ -250,9 +250,9 @@
                 <div class="maya-api-guidance-body" id="mayaApiGuidanceBody">
                   <p class="maya-api-guidance-title">What is Anonymize mode?</p>
                   <p class="maya-api-guidance-desc">Instead of blocking text with placeholders, Anonymize replaces supported sensitive information with realistic fake equivalents through Maya — so enterprise LLMs see safe text while your real data stays out of their prompts.</p>
-                  <p class="maya-api-guidance-desc" style="margin-top:2px">Veil anonymizes through Maya: <strong>Names · Emails · Phone numbers · Addresses · Locations · Organizations · Dates of birth · SSNs · Credit card numbers</strong></p>
+                  <p class="maya-api-guidance-desc" style="margin-top:2px">AI-Safe Plugin anonymizes through Maya: <strong>Names · Emails · Phone numbers · Addresses · Locations · Organizations · Dates of birth · SSNs · Credit card numbers</strong></p>
                   <p class="maya-api-guidance-example">e.g. <span class="anon-ex-real">Priya Sharma</span> → <span class="anon-ex-fake">Claire Bennett</span> &nbsp;&nbsp; <span class="anon-ex-real">priya@acme.com</span> → <span class="anon-ex-fake">claire.b@mailhub.io</span></p>
-                  <p class="maya-api-guidance-desc" style="margin-top:4px">Unsupported detections stay local and remain redacted. If Maya is unavailable for a supported type, Veil falls back to safe masking before the prompt leaves your browser.</p>
+                  <p class="maya-api-guidance-desc" style="margin-top:4px">Unsupported detections stay local and remain redacted. If Maya is unavailable for a supported type, AI-Safe Plugin falls back to safe masking before the prompt leaves your browser.</p>
                   <p class="maya-api-guidance-desc" style="margin-top:6px">A <strong>Maya API Key</strong> is required. Sign up free at <a href="https://app.mayadataprivacy.eu" target="_blank" rel="noreferrer" class="maya-api-link">app.mayadataprivacy.eu</a>, then copy your key from the <strong>Profile</strong> section and paste it below.</p>
                   <a href="https://app.mayadataprivacy.eu" target="_blank" rel="noreferrer" class="maya-api-get-key-btn">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -282,9 +282,9 @@
 
               <!-- ─── Input state ─── -->
               <div id="apiKeyInputState">
-                <label class="field field-tight" for="veilApiKeyInput">
+                <label class="field field-tight" for="aiSafePluginApiKeyInput">
                   <div class="secret-input-row">
-                    <input id="veilApiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Maya API key…">
+                    <input id="aiSafePluginApiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Maya API key…">
                     <button type="button" class="ghost compact eye-btn" id="toggleApiKeyVisibility" aria-label="Show key" title="Show/hide">
                       <svg class="eye-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <path class="eye-on" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>
@@ -303,7 +303,7 @@
           <div id="diagnosticsPanel" class="tool-panel" hidden>
             <section class="server-tool-panel">
               <p class="panel-title">Diagnostics</p>
-              <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect Veil&apos;s runtime and do not change what gets sent to enterprise LLMs.</p>
+              <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect AI-Safe Plugin&apos;s runtime and do not change what gets sent to enterprise LLMs.</p>
               <label class="field field-tight" style="margin-bottom:8px">
                 <span style="font-size:11px;font-weight:600;color:var(--ink)">GLiNER2 Model</span>
                 <select id="modelSelect">
@@ -363,7 +363,7 @@
       <section class="opt-section" id="section-protection">
         <div class="opt-section-header">
           <h2 class="opt-section-title">Protection</h2>
-          <p class="opt-section-desc">Control how and where Veil monitors for personal information.</p>
+          <p class="opt-section-desc">Control how and where AI-Safe Plugin monitors for personal information.</p>
         </div>
 
         <div class="opt-card">
@@ -390,7 +390,7 @@
       <section class="opt-section" id="section-detection">
         <div class="opt-section-header">
           <h2 class="opt-section-title">Detection</h2>
-          <p class="opt-section-desc">Tune how aggressively Veil identifies and replaces personal data.</p>
+          <p class="opt-section-desc">Tune how aggressively AI-Safe Plugin identifies and replaces personal data.</p>
         </div>
 
         <div class="opt-card">
@@ -423,7 +423,7 @@
       <section class="opt-section" id="section-pii">
         <div class="opt-section-header">
           <h2 class="opt-section-title">PII Types</h2>
-          <p class="opt-section-desc">Choose which categories of personal information Veil should detect and redact.</p>
+          <p class="opt-section-desc">Choose which categories of personal information AI-Safe Plugin should detect and redact.</p>
         </div>
 
         <div class="opt-card">
@@ -514,9 +514,9 @@
 
         <div class="opt-card opt-danger-zone">
           <div class="opt-danger-header">Danger zone</div>
-          <p class="hint">Permanently deletes all Veil data stored in your browser and restores default settings. This removes your settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats. This cannot be undone.</p>
+          <p class="hint">Permanently deletes all AI-Safe Plugin data stored in your browser and restores default settings. This removes your settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats. This cannot be undone.</p>
           <div class="button-row">
-            <button id="deleteAllDataButton" type="button" class="opt-danger-button">Delete all Veil data</button>
+            <button id="deleteAllDataButton" type="button" class="opt-danger-button">Delete all AI-Safe Plugin data</button>
           </div>
         </div>
       </section>
@@ -528,13 +528,13 @@
       <section class="opt-section" id="section-about">
         <div class="opt-section-header">
           <h2 class="opt-section-title">About</h2>
-          <p class="opt-section-desc">Veil is an open-source privacy guard built on top of GLiNER2 by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a>.</p>
+          <p class="opt-section-desc">AI-Safe Plugin is an open-source privacy guard built on top of GLiNER2 by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a>.</p>
         </div>
 
         <div class="opt-card opt-about-card">
           <div class="opt-about-brand">
             <div>
-              <div class="opt-about-name">Veil</div>
+              <div class="opt-about-name">AI-Safe Plugin</div>
               <div class="opt-about-sub">An open privacy tool by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a>, powered by GLiNER2</div>
             </div>
           </div>
@@ -553,7 +553,7 @@
             </div>
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">Shortcuts</span>
-              <span class="opt-about-fact-val">Alt+Shift+R redact all in the focused field; Alt+Shift+V pause or resume Veil on this site</span>
+              <span class="opt-about-fact-val">Alt+Shift+R redact all in the focused field; Alt+Shift+V pause or resume AI-Safe Plugin on this site</span>
             </div>
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">License</span>
@@ -561,15 +561,15 @@
             </div>
           </div>
           <div class="opt-about-links">
-            <a href="https://github.com/Maya-data-privacy/veil" target="_blank" rel="noreferrer" class="opt-about-link">
+            <a href="https://github.com/Maya-Data-Privacy/AI-Safe-Plugin" target="_blank" rel="noreferrer" class="opt-about-link">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
               View on GitHub
             </a>
-            <a href="https://github.com/Maya-data-privacy/veil/issues" target="_blank" rel="noreferrer" class="opt-about-link opt-about-link-secondary">
+            <a href="https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/issues" target="_blank" rel="noreferrer" class="opt-about-link opt-about-link-secondary">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9 3a1 1 0 11-2 0 1 1 0 012 0zm-.25-6.25a.75.75 0 00-1.5 0v3.5a.75.75 0 001.5 0v-3.5z"/></svg>
               Report an Issue
             </a>
-            <a href="https://github.com/Maya-data-privacy/veil/blob/main/docs/PRIVACY_POLICY.md" target="_blank" rel="noreferrer" class="opt-about-link opt-about-link-secondary">
+            <a href="https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/blob/main/docs/PRIVACY_POLICY.md" target="_blank" rel="noreferrer" class="opt-about-link opt-about-link-secondary">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M9.5 1H4a1.5 1.5 0 00-1.5 1.5v11A1.5 1.5 0 004 15h8a1.5 1.5 0 001.5-1.5V5L9.5 1zM5 8h6v1H5V8zm0 3h6v1H5v-1zM9 2l3.5 3.5H9V2z"/></svg>
               Privacy Policy
             </a>

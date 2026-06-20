@@ -37,9 +37,9 @@ def test_unix_installer_reuses_existing_model_cache_before_downloading_again():
 def test_uninstaller_waits_for_process_shutdown_and_retries_directory_removal():
     script = UNINSTALLER_PATH.read_text(encoding="utf-8")
 
-    assert "wait_for_veil_shutdown" in script
+    assert "wait_for_ai_safe_plugin_shutdown" in script
     assert "remove_install_dir" in script
-    assert 'wait_for_veil_shutdown "${INSTALL_DIR}" || true' in script
+    assert 'wait_for_ai_safe_plugin_shutdown "${INSTALL_DIR}" || true' in script
     assert 'remove_install_dir "${INSTALL_DIR}"' in script
 
 

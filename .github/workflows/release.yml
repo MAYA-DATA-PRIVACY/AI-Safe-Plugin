@@ -164,11 +164,11 @@ jobs:
 
       - name: Build Windows installer staging
         env:
-          VEIL_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
-          VEIL_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
         shell: pwsh
         run: |
-          $env:VEIL_RELEASE_PUBLISHED_AT = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $env:AI_SAFE_PLUGIN_RELEASE_PUBLISHED_AT = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           uv run --no-sync python scripts/build_windows_installer.py
 
       - name: Install Inno Setup
@@ -178,13 +178,13 @@ jobs:
       - name: Compile Windows installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\VeilSetup.iss"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\AISafePluginSetup.iss"
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v7
         with:
-          name: veil-windows-setup
-          path: dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
+          name: ai-safe-plugin-windows-setup
+          path: dist/AISafePluginSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
           if-no-files-found: error
 
   publish-release-assets:
@@ -222,30 +222,30 @@ jobs:
           uv sync --frozen --no-dev --no-install-project
 
       - name: Build extension ZIP
-        run: bash scripts/build_crx.sh dist/veil-extension.zip
+        run: bash scripts/build_crx.sh dist/ai-safe-plugin-extension.zip
 
       - name: Build backend release bundle
         env:
-          VEIL_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
-          VEIL_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
         run: |
-          export VEIL_RELEASE_PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export AI_SAFE_PLUGIN_RELEASE_PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           uv run --no-sync python scripts/build_backend_bundle.py
 
       - name: Build model bundle (fp16 ONNX from HuggingFace)
         run: uv run --no-sync python scripts/build_model_bundle.py
 
       - name: Rename extension ZIP with version
-        run: mv dist/veil-extension.zip "dist/veil-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
+        run: mv dist/ai-safe-plugin-extension.zip "dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
 
       - name: Download Windows installer artifact
         uses: actions/download-artifact@v8
         with:
-          name: veil-windows-setup
+          name: ai-safe-plugin-windows-setup
           path: dist
 
       - name: Create stable Windows installer alias
-        run: cp "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" dist/VeilSetup.exe
+        run: cp "dist/AISafePluginSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" dist/AISafePluginSetup.exe
 
       - name: Generate asset checksums
         working-directory: dist
@@ -253,16 +253,16 @@ jobs:
           RELEASE_VERSION: ${{ needs.verify-release-version.outputs.release_version }}
         run: |
           sha256sum \
-            "veil-extension-${RELEASE_VERSION}.zip" \
+            "ai-safe-plugin-extension-${RELEASE_VERSION}.zip" \
             install.sh \
             install.ps1 \
             uninstall.sh \
             uninstall.ps1 \
-            veil-backend-unix.tar.gz \
-            veil-backend-windows.zip \
-            veil-model-fp16.tar.gz \
-            "VeilSetup-${RELEASE_VERSION}.exe" \
-            VeilSetup.exe \
+            ai-safe-plugin-backend-unix.tar.gz \
+            ai-safe-plugin-backend-windows.zip \
+            ai-safe-plugin-model-fp16.tar.gz \
+            "AISafePluginSetup-${RELEASE_VERSION}.exe" \
+            AISafePluginSetup.exe \
             > SHA256SUMS
           cat SHA256SUMS
 
@@ -280,20 +280,20 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify-release-version.outputs.tag_name }}
-          name: "Veil ${{ needs.verify-release-version.outputs.tag_name }}"
+          name: "AI-Safe Plugin ${{ needs.verify-release-version.outputs.tag_name }}"
           body_path: release-notes.md
           draft: false
           prerelease: ${{ contains(needs.verify-release-version.outputs.tag_name, '-') }}
           fail_on_unmatched_files: true
           files: |
-            dist/veil-extension-${{ needs.verify-release-version.outputs.release_version }}.zip
+            dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}.zip
             dist/install.sh
             dist/install.ps1
             dist/uninstall.sh
             dist/uninstall.ps1
-            dist/veil-backend-unix.tar.gz
-            dist/veil-backend-windows.zip
-            dist/veil-model-fp16.tar.gz
-            dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
-            dist/VeilSetup.exe
+            dist/ai-safe-plugin-backend-unix.tar.gz
+            dist/ai-safe-plugin-backend-windows.zip
+            dist/ai-safe-plugin-model-fp16.tar.gz
+            dist/AISafePluginSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
+            dist/AISafePluginSetup.exe
             dist/SHA256SUMS

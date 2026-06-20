@@ -9,8 +9,8 @@ AppPublisherURL={#MyAppUrl}
 AppSupportURL={#MyAppUrl}
 AppUpdatesURL={#MyAppUrl}
 AppCopyright={#MyAppCopyright}
-DefaultDirName={localappdata}\Veil
-DefaultGroupName=Veil
+DefaultDirName={localappdata}\AI-Safe Plugin
+DefaultGroupName=AI-Safe Plugin
 DisableProgramGroupPage=yes
 DisableDirPage=no
 DisableWelcomePage=no
@@ -25,12 +25,12 @@ SolidCompression=yes
 WizardStyle=modern
 MinVersion=10.0
 LicenseFile=..\..\LICENSE
-SetupIconFile=assets\veil-installer.ico
-WizardImageFile=assets\veil-wizard.bmp
-WizardSmallImageFile=assets\veil-wizard-small.bmp
+SetupIconFile=assets\ai-safe-plugin-installer.ico
+WizardImageFile=assets\ai-safe-plugin-wizard.bmp
+WizardSmallImageFile=assets\ai-safe-plugin-wizard-small.bmp
 OutputDir=..\..\dist
-OutputBaseFilename=VeilSetup-{#MyAppVersion}
-UninstallDisplayName=Veil
+OutputBaseFilename=AISafePluginSetup-{#MyAppVersion}
+UninstallDisplayName=AI-Safe Plugin
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -48,7 +48,7 @@ Name: "{app}\.runtime\cache\hf\transformers"
 Name: "{app}\.runtime\cache\xdg"
 
 [Icons]
-Name: "{autoprograms}\Veil"; Filename: "{uninstallexe}"
+Name: "{autoprograms}\AI-Safe Plugin"; Filename: "{uninstallexe}"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.runtime"
@@ -157,12 +157,12 @@ end;
 
 function GetTemporaryExtractDir(): String;
 begin
-  Result := ExpandConstant('{tmp}\veil-model-stage');
+  Result := ExpandConstant('{tmp}\ai-safe-plugin-model-stage');
 end;
 
 function GetExtractedTarPath(): String;
 begin
-  Result := AddBackslash(GetTemporaryExtractDir()) + 'veil-model-fp16.tar';
+  Result := AddBackslash(GetTemporaryExtractDir()) + 'ai-safe-plugin-model-fp16.tar';
 end;
 
 procedure DownloadModelAsset();
@@ -229,27 +229,27 @@ begin
     ExtractModelAsset();
   except
     RaiseException(
-      'Veil could not download the GLiNER2 model from this release. ' +
+      'AI-Safe Plugin could not download the GLiNER2 model from this release. ' +
       'Check your network connection and rerun setup.'
     );
   end;
 
   if not IsModelPresent() then
-    RaiseException('Veil setup could not verify the downloaded GLiNER2 model cache.');
+    RaiseException('AI-Safe Plugin setup could not verify the downloaded GLiNER2 model cache.');
 end;
 
 procedure InitializeWizard();
 begin
   DownloadPage := CreateDownloadPage(
     'Downloading GLiNER2 model',
-    'Veil is downloading the local model asset from this release.',
+    'AI-Safe Plugin is downloading the local model asset from this release.',
     nil
   );
   DownloadPage.ShowBaseNameInsteadOfUrl := True;
 
   ExtractionPage := CreateExtractionPage(
     'Extracting GLiNER2 model',
-    'Veil is unpacking the downloaded model into your local cache.',
+    'AI-Safe Plugin is unpacking the downloaded model into your local cache.',
     nil
   );
 
@@ -258,10 +258,10 @@ begin
 
   ExtensionIdPage := CreateInputQueryPage(
     wpSelectDir,
-    'Connect Veil To Your Browser Extension',
-    'Paste the Veil extension ID',
-    'Veil must know the browser extension ID so it can register the native messaging host on Windows. ' +
-    'For unpacked installs, open chrome://extensions, find Veil, and copy the 32-character ID. ' +
+    'Connect AI-Safe Plugin To Your Browser Extension',
+    'Paste the AI-Safe Plugin extension ID',
+    'AI-Safe Plugin must know the browser extension ID so it can register the native messaging host on Windows. ' +
+    'For unpacked installs, open chrome://extensions, find AI-Safe Plugin, and copy the 32-character ID. ' +
     'Silent installs can pass /EXTENSION_ID=<id>.'
   );
   ExtensionIdPage.Add('Extension ID:', False);
@@ -294,11 +294,11 @@ var
 begin
   ExtensionId := ResolveExtensionId();
   if ExtensionId = '' then
-    RaiseException('A valid Veil extension ID is required to finish Windows setup.');
+    RaiseException('A valid AI-Safe Plugin extension ID is required to finish Windows setup.');
 
   InstallerScript := ExpandConstant('{app}\scripts\installers\install.ps1');
   if not FileExists(InstallerScript) then
-    RaiseException('Veil setup could not find the bundled Windows installer script.');
+    RaiseException('AI-Safe Plugin setup could not find the bundled Windows installer script.');
 
   Params :=
     '-NoProfile -ExecutionPolicy Bypass -File "' + InstallerScript + '"' +
@@ -307,9 +307,9 @@ begin
     ' -UseExistingBundle';
 
   if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
-    RaiseException('Failed to launch Veil runtime provisioning.');
+    RaiseException('Failed to launch AI-Safe Plugin runtime provisioning.');
   if ResultCode <> 0 then
-    RaiseException('Veil runtime provisioning failed with exit code ' + IntToStr(ResultCode) + '.');
+    RaiseException('AI-Safe Plugin runtime provisioning failed with exit code ' + IntToStr(ResultCode) + '.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

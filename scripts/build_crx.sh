@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # scripts/build_crx.sh — Build a Chrome Web Store submission ZIP
 # Usage: bash scripts/build_crx.sh [output_path]
-# Output: dist/veil-extension.zip (or $1 if specified)
+# Output: dist/ai-safe-plugin-extension.zip (or $1 if specified)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$SCRIPT_DIR/.."
 EXTENSION_DIR="$ROOT/extension"
-OUTPUT="${1:-$ROOT/dist/veil-extension.zip}"
+OUTPUT="${1:-$ROOT/dist/ai-safe-plugin-extension.zip}"
 if [[ "$OUTPUT" != /* ]]; then
   OUTPUT="$PWD/$OUTPUT"
 fi
 
-echo "🛡  Veil Extension — CRX Package Builder"
+echo "🛡  AI-Safe Plugin Extension — CRX Package Builder"
 echo "   Source : $EXTENSION_DIR"
 echo "   Output : $OUTPUT"
 echo ""

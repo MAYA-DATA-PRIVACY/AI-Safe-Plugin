@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Veil \u2014 AI Privacy Guard",
-  "short_name": "Veil",
+  "name": "AI-Safe Plugin \u2014 AI Privacy Guard",
+  "short_name": "AI-Safe Plugin",
   "version": "1.2.8",
   "description": "Real-time PII detection and redaction for AI chat interfaces. Local GLiNER2 detection by default.",
   "permissions": [
@@ -41,7 +41,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Veil \u2014 AI Privacy Guard",
+    "default_title": "AI-Safe Plugin \u2014 AI Privacy Guard",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -54,13 +54,13 @@
     "open_in_tab": true
   },
   "commands": {
-    "veil-redact-all": {
+    "ai-safe-plugin-redact-all": {
       "suggested_key": { "default": "Alt+Shift+R" },
       "description": "Redact all detections in the focused field"
     },
-    "veil-toggle": {
+    "ai-safe-plugin-toggle": {
       "suggested_key": { "default": "Alt+Shift+V" },
-      "description": "Pause/resume Veil on this site"
+      "description": "Pause/resume AI-Safe Plugin on this site"
     }
   },
   "content_security_policy": {

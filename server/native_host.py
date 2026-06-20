@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Native messaging host for Veil.
+Native messaging host for AI-Safe Plugin.
 
 The host exposes start / stop / restart / status controls for the local
 GLiNER2 server. The backend runtime itself is managed by uv and kept inside the
-Veil install directory.
+AI-Safe Plugin install directory.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List
 
-HOST_NAME = "com.veil.gliner.server"
+HOST_NAME = "com.ai_safe_plugin.gliner.server"
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8765
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/health"
@@ -510,11 +510,11 @@ def sync_managed_runtime() -> None:
     uv_binary = resolve_uv_binary()
     if uv_binary is None:
         raise RuntimeError(
-            "Veil runtime manager is missing. Re-run the installer to restore the pinned uv runtime."
+            "AI-Safe Plugin runtime manager is missing. Re-run the installer to restore the pinned uv runtime."
         )
     if not PYPROJECT_FILE.exists() or not UV_LOCK_FILE.exists():
         raise RuntimeError(
-            "Veil runtime metadata is missing. Re-run the installer to restore pyproject.toml and uv.lock."
+            "AI-Safe Plugin runtime metadata is missing. Re-run the installer to restore pyproject.toml and uv.lock."
         )
 
     env = runtime_env()
@@ -721,7 +721,7 @@ def start_server(
                 "message": "Server started.",
                 **runtime_meta(),
             }
-        # Port open but never became healthy — true conflict with a non-Veil process
+        # Port open but never became healthy — true conflict with a non-AI-Safe Plugin process
         if status.get("portConflict"):
             return {
                 "success": True,
@@ -729,7 +729,7 @@ def start_server(
                 "healthy": False,
                 "pid": None,
                 "portConflict": True,
-                "message": "Port 8765 is already in use by another local process. Veil will not stop it automatically.",
+                "message": "Port 8765 is already in use by another local process. AI-Safe Plugin will not stop it automatically.",
                 **runtime_meta(),
             }
         # Port open, not healthy, but looks like our own server still loading
@@ -764,7 +764,7 @@ def start_server(
 
     ensure_runtime_dirs()
     if not VENV_PYTHON.exists():
-        raise RuntimeError("Veil managed runtime is missing. Re-run the installer to restore the local environment.")
+        raise RuntimeError("AI-Safe Plugin managed runtime is missing. Re-run the installer to restore the local environment.")
     log_handle = LOG_FILE.open("a", encoding="utf-8")
     cmd = [str(VENV_PYTHON), "-u", str(SCRIPT_PATH), "--host", SERVER_HOST, "--port", str(SERVER_PORT)]
     if resolved_model:
@@ -811,7 +811,7 @@ def stop_server() -> Dict[str, Any]:
     if failures:
         return {
             "success": False,
-            "error": f"Failed to stop Veil-managed server process(es): {', '.join(map(str, failures))}.",
+            "error": f"Failed to stop AI-Safe Plugin-managed server process(es): {', '.join(map(str, failures))}.",
             "running": True,
             "healthy": is_server_healthy(),
             "pid": failures[0],

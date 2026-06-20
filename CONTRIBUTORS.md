@@ -1,6 +1,6 @@
 # Contributors
 
-Thank you to everyone who has contributed to Veil — Privacy Shield for LLM Interfaces.
+Thank you to everyone who has contributed to AI-Safe Plugin — Privacy Shield for LLM Interfaces.
 
 ## Core Contributors
 

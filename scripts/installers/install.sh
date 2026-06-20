@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_SLUG="Maya-Data-Privacy/Veil"
+REPO_SLUG="Maya-Data-Privacy/AI-Safe-Plugin"
 RELEASE_BASE="https://github.com/${REPO_SLUG}/releases/latest/download"
-ASSET_NAME="veil-backend-unix.tar.gz"
+ASSET_NAME="ai-safe-plugin-backend-unix.tar.gz"
 DEFAULT_ANON_ENDPOINT="https://app.mayadataprivacy.in/mdp/engine/anonymization"
 PINNED_UV_VERSION="0.10.7"
 PINNED_PYTHON_VERSION="3.11.11"
 
 EXTENSION_ID=""
-INSTALL_DIR="${VEIL_INSTALL_DIR:-}"
+INSTALL_DIR="${AI_SAFE_PLUGIN_INSTALL_DIR:-}"
 RECREATE_VENV=0
-UV_VERSION="${VEIL_UV_VERSION:-${PINNED_UV_VERSION}}"
+UV_VERSION="${AI_SAFE_PLUGIN_UV_VERSION:-${PINNED_UV_VERSION}}"
 UV_BIN_OVERRIDE=""
 UV_BIN=""
 
@@ -101,7 +101,7 @@ python_version_of() {
   "${python_bin}" -c "import sys; print('.'.join(map(str, sys.version_info[:3])))" 2>/dev/null || true
 }
 
-kill_veil_processes() {
+kill_ai_safe_plugin_processes() {
   local install_dir="$1"
   local -a patterns=(
     "${install_dir}/server/gliner2_server.py"
@@ -297,8 +297,8 @@ fi
 
 OS_NAME="$(uname -s)"
 case "${OS_NAME}" in
-  Linux*) PLATFORM="linux"; DEFAULT_INSTALL_DIR="${HOME}/.local/share/veil" ;;
-  Darwin*) PLATFORM="mac"; DEFAULT_INSTALL_DIR="${HOME}/Library/Application Support/Veil" ;;
+  Linux*) PLATFORM="linux"; DEFAULT_INSTALL_DIR="${HOME}/.local/share/ai-safe-plugin" ;;
+  Darwin*) PLATFORM="mac"; DEFAULT_INSTALL_DIR="${HOME}/Library/Application Support/AI-Safe Plugin" ;;
   *)
     fail "Unsupported OS for install.sh: ${OS_NAME}"
     ;;
@@ -314,7 +314,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Downloading Veil backend bundle..."
+echo "Downloading AI-Safe Plugin backend bundle..."
 curl -fsSL "${RELEASE_BASE}/${ASSET_NAME}" -o "${ARCHIVE_PATH}"
 verify_asset_checksum "${ARCHIVE_PATH}" hard
 
@@ -329,7 +329,7 @@ else
   [[ -f "${INSTALL_DIR}/server/native-host/uninstall_mac.sh" ]] && bash "${INSTALL_DIR}/server/native-host/uninstall_mac.sh" || true
 fi
 
-kill_veil_processes "${INSTALL_DIR}"
+kill_ai_safe_plugin_processes "${INSTALL_DIR}"
 remove_install_contents "${INSTALL_DIR}"
 cp -R "${EXTRACT_DIR}/." "${INSTALL_DIR}/"
 
@@ -358,7 +358,7 @@ export XDG_CACHE_HOME="${INSTALL_DIR}/.runtime/cache/xdg"
 
 # Download the pre-packaged fp16 model from the GitHub Release (much faster than
 # pulling from HuggingFace Hub). Falls back to HF download if the asset is missing.
-MODEL_ASSET="veil-model-fp16.tar.gz"
+MODEL_ASSET="ai-safe-plugin-model-fp16.tar.gz"
 MODEL_ARCHIVE="${TMP_DIR}/${MODEL_ASSET}"
 MODEL_DEST="${INSTALL_DIR}/.runtime/cache/model"
 
@@ -387,6 +387,6 @@ else
 fi
 
 echo
-echo "Veil install complete."
+echo "AI-Safe Plugin install complete."
 echo "Install directory: ${INSTALL_DIR}"
 echo "Extension ID: ${EXTENSION_ID}"

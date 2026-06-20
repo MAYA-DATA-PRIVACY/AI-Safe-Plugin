@@ -4,7 +4,7 @@ import './pattern_catalog.js';
 
 const {
   cloneDefaultCustomPatterns,
-} = globalThis.VEIL_PATTERN_CATALOG;
+} = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
 
 const DEFAULT_LABELS = [
   'person',
@@ -107,13 +107,13 @@ const DEFAULT_MONITORED_SELECTORS = [
   '.ProseMirror'
 ];
 
-const NATIVE_HOST_NAMES = ['com.veil.gliner.server', 'com.privacyshield.gliner2'];
-const MDP_SEED_STORAGE_KEY = 'veilAnonymizationSeed';
-const MDP_SEED_PREFIX = 'veil_';
+const NATIVE_HOST_NAMES = ['com.ai_safe_plugin.gliner.server', 'com.privacyshield.gliner2'];
+const MDP_SEED_STORAGE_KEY = 'aiSafePluginAnonymizationSeed';
+const MDP_SEED_PREFIX = 'ai_safe_plugin_';
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:8765';
-const LOCAL_SERVER_URL_OVERRIDE_KEY = 'veilLocalServerUrlOverride';
+const LOCAL_SERVER_URL_OVERRIDE_KEY = 'aiSafePluginLocalServerUrlOverride';
 
-// Maps Veil detection labels → MayaData anonymisation engine utility parameters.
+// Maps AI-Safe Plugin detection labels → MayaData anonymisation engine utility parameters.
 // Available MayaData UtilityParameter enum values:
 //   IBAN, MATERIAL, CONSISTENT_ID, NUMBER, NAME, CLEAR, PHONE, URL, ADDRESS,
 //   PASSPORT_NUMBER, ACCOUNT_NUMBER, EMAIL, BANK_DETAILS, ORG_NAME, SSN,
@@ -254,7 +254,7 @@ function readConfiguredLocalServerUrl() {
   });
 }
 
-class VeilAnonymizer {
+class AiSafePluginAnonymizer {
   constructor() {
     this.timeoutMs = 6000;
     this.localServerUrl = DEFAULT_LOCAL_SERVER_URL;
@@ -279,7 +279,7 @@ class VeilAnonymizer {
         .filter((label) => label && !MDP_LABEL_CONFIG[label])
     ));
     if (unsupportedLabels.length > 0) {
-      console.debug('[Veil] Anonymizer skipped unsupported labels:', unsupportedLabels.join(', '));
+      console.debug('[AI-Safe Plugin] Anonymizer skipped unsupported labels:', unsupportedLabels.join(', '));
     }
     if (supportedDetections.length === 0) {
       return detections;
@@ -287,7 +287,7 @@ class VeilAnonymizer {
 
     const credentials = await this.getCredentials();
     if (!credentials.apiKey) {
-      console.warn('[Veil] Anonymizer skipped: no API key configured. Set one in the extension popup.');
+      console.warn('[AI-Safe Plugin] Anonymizer skipped: no API key configured. Set one in the extension popup.');
       return detections;
     }
 
@@ -301,7 +301,7 @@ class VeilAnonymizer {
       const replacements = this.extractReplacementMap(payload, apiResponse);
       return detections.map((item) => this.applyReplacement(item, replacements));
     } catch (error) {
-      console.warn('[Veil] Anonymization bulk request failed, retrying per label:', error?.message || String(error));
+      console.warn('[AI-Safe Plugin] Anonymization bulk request failed, retrying per label:', error?.message || String(error));
       const replacements = await this.callApiBestEffort(credentials.apiKey, payload);
       if (replacements.size === 0) {
         return detections;
@@ -312,7 +312,7 @@ class VeilAnonymizer {
 
   async getCredentials() {
     const result = await new Promise((resolve) => {
-      chrome.storage.local.get(['veilApiKey', MDP_SEED_STORAGE_KEY], resolve);
+      chrome.storage.local.get(['aiSafePluginApiKey', MDP_SEED_STORAGE_KEY], resolve);
     });
 
     let seed = String(result?.[MDP_SEED_STORAGE_KEY] || '').trim();
@@ -322,7 +322,7 @@ class VeilAnonymizer {
     }
 
     return {
-      apiKey: String(result?.veilApiKey || '').trim(),
+      apiKey: String(result?.aiSafePluginApiKey || '').trim(),
       seed
     };
   }
@@ -372,7 +372,7 @@ class VeilAnonymizer {
         signal: controller.signal
       });
       let response = await doFetch();
-      if (response.status === 401 && veilAuthRequired) {
+      if (response.status === 401 && aiSafePluginAuthRequired) {
         await refreshServerToken();
         response = await doFetch();
       }
@@ -416,7 +416,7 @@ class VeilAnonymizer {
         replacementMap.forEach((value, key) => merged.set(key, value));
       } catch (error) {
         const label = String(entry?.utilityParameter || entry?.column_name || 'unknown');
-        console.warn(`[Veil] Anonymizer skipped label ${label}:`, error?.message || String(error));
+        console.warn(`[AI-Safe Plugin] Anonymizer skipped label ${label}:`, error?.message || String(error));
       }
     }
     return merged;
@@ -613,30 +613,30 @@ function sendNativeHostMessage(payload) {
 
 // ─── Local-server shared token (H2) ──────────────────────────────────────────
 // The local server generates a token and the native host hands it to us. We
-// attach it as X-Veil-Token on detection POSTs. When the server reports
+// attach it as X-AI-Safe-Plugin-Token on detection POSTs. When the server reports
 // authRequired:false (old servers / --no-auth / the e2e mock) we skip all of this.
-const SERVER_TOKEN_STORAGE_KEY = 'veilServerToken';
-let veilServerToken = null;
-let veilAuthRequired = false;
+const SERVER_TOKEN_STORAGE_KEY = 'aiSafePluginServerToken';
+let aiSafePluginServerToken = null;
+let aiSafePluginAuthRequired = false;
 
 async function loadCachedServerToken() {
-  if (veilServerToken) return veilServerToken;
+  if (aiSafePluginServerToken) return aiSafePluginServerToken;
   try {
     const stored = await chrome.storage.local.get(SERVER_TOKEN_STORAGE_KEY);
     if (stored && stored[SERVER_TOKEN_STORAGE_KEY]) {
-      veilServerToken = stored[SERVER_TOKEN_STORAGE_KEY];
+      aiSafePluginServerToken = stored[SERVER_TOKEN_STORAGE_KEY];
     }
   } catch (_e) { /* storage unavailable — non-fatal */ }
-  return veilServerToken;
+  return aiSafePluginServerToken;
 }
 
 async function refreshServerToken() {
   try {
     const response = await sendNativeHostMessage({ action: 'get_server_token' });
     if (response && response.token) {
-      veilServerToken = response.token;
-      try { await chrome.storage.local.set({ [SERVER_TOKEN_STORAGE_KEY]: veilServerToken }); } catch (_e) { /* non-fatal */ }
-      return veilServerToken;
+      aiSafePluginServerToken = response.token;
+      try { await chrome.storage.local.set({ [SERVER_TOKEN_STORAGE_KEY]: aiSafePluginServerToken }); } catch (_e) { /* non-fatal */ }
+      return aiSafePluginServerToken;
     }
   } catch (_e) { /* native host unavailable — caller surfaces setup-needed state */ }
   return null;
@@ -651,9 +651,9 @@ async function getServerToken() {
 // Build request headers for a local-server POST, adding the token when required.
 async function localServerHeaders(base = {}) {
   const headers = { ...base };
-  if (veilAuthRequired) {
+  if (aiSafePluginAuthRequired) {
     const token = await getServerToken();
-    if (token) headers['X-Veil-Token'] = token;
+    if (token) headers['X-AI-Safe-Plugin-Token'] = token;
   }
   return headers;
 }
@@ -708,7 +708,7 @@ class GLiNERDetector {
       const data = await response.json();
       // Track whether this server enforces the shared token so detection POSTs
       // can attach it. Old servers / the mock omit the field → treated as false.
-      veilAuthRequired = Boolean(data?.authRequired);
+      aiSafePluginAuthRequired = Boolean(data?.authRequired);
       return Boolean(data?.ok);
     } catch {
       return false;
@@ -938,7 +938,7 @@ class GLiNERDetector {
       signal
     );
     let response = await doFetch();
-    if (response.status === 401 && veilAuthRequired) {
+    if (response.status === 401 && aiSafePluginAuthRequired) {
       await refreshServerToken();
       response = await doFetch();
     }
@@ -1116,7 +1116,7 @@ class GLiNERDetector {
         signal: controller.signal,
       });
       let response = await doFetch();
-      if (response.status === 401 && veilAuthRequired) {
+      if (response.status === 401 && aiSafePluginAuthRequired) {
         await refreshServerToken();
         response = await doFetch();
       }
@@ -1184,7 +1184,7 @@ class GLiNERDetector {
 }
 
 const detector = new GLiNERDetector();
-const anonymizer = new VeilAnonymizer();
+const anonymizer = new AiSafePluginAnonymizer();
 
 async function syncConfiguredLocalServerUrl() {
   const url = await readConfiguredLocalServerUrl();
@@ -1211,8 +1211,8 @@ async function broadcastToTabs(message) {
 }
 
 const COMMAND_ACTIONS = Object.freeze({
-  'veil-redact-all': 'commandRedactAll',
-  'veil-toggle': 'commandToggleSite'
+  'ai-safe-plugin-redact-all': 'commandRedactAll',
+  'ai-safe-plugin-toggle': 'commandToggleSite'
 });
 
 async function sendCommandToActiveTab(action) {
@@ -1241,7 +1241,7 @@ async function checkServerHealthAndNotify() {
     if (response.ok) {
       const data = await response.json();
       isHealthy = Boolean(data?.ok);
-      veilAuthRequired = Boolean(data?.authRequired);
+      aiSafePluginAuthRequired = Boolean(data?.authRequired);
     }
   } catch { /* server unreachable */ }
 
@@ -1351,7 +1351,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // ── Toolbar-icon badge (U1) ──
   // Push from a content script: amber count of unredacted detections, green ✓
   // when everything is protected, cleared when there's nothing.
-  if (request.action === 'veilStatsPush') {
+  if (request.action === 'aiSafePluginStatsPush') {
     if (!sender?.tab?.id) return false;
     const detected = Number(request.detected) || 0;
     const protectedCount = Number(request.protected) || 0;

@@ -4,7 +4,7 @@ set -euo pipefail
 if [[ $# -lt 1 ]]; then
   echo "Usage: bash server/native-host/install_linux.sh <extension_id> [extra_id ...]"
   echo ""
-  echo "  One or more Chrome extension IDs. Pass all browser IDs if you use Veil"
+  echo "  One or more Chrome extension IDs. Pass all browser IDs if you use AI-Safe Plugin"
   echo "  in multiple Chromium-based browsers on this machine."
   echo "  Example: bash server/native-host/install_linux.sh ID_CHROME ID_BRAVE"
   exit 1
@@ -13,7 +13,7 @@ fi
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HOST_SCRIPT="${REPO_DIR}/server/native_host.py"
 HOST_LAUNCHER="${REPO_DIR}/server/native-host/native_host_unix.sh"
-HOST_NAME="com.veil.gliner.server"
+HOST_NAME="com.ai_safe_plugin.gliner.server"
 LEGACY_HOST_NAME="com.privacyshield.gliner2"
 RUNTIME_DIR="${REPO_DIR}/.runtime"
 VENV_PYTHON="${REPO_DIR}/.venv/bin/python"
@@ -33,8 +33,8 @@ mkdir -p "${RUNTIME_DIR}/cache"
 touch "${RUNTIME_DIR}/gliner2_server.log"
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then
-  echo "Error: Veil managed runtime not found at ${VENV_PYTHON}" >&2
-  echo "Run the Veil installer first so uv can provision the local runtime." >&2
+  echo "Error: AI-Safe Plugin managed runtime not found at ${VENV_PYTHON}" >&2
+  echo "Run the AI-Safe Plugin installer first so uv can provision the local runtime." >&2
   exit 1
 fi
 
@@ -64,7 +64,7 @@ write_manifest() {
   cat > "${manifest_file}" <<EOF
 {
   "name": "${HOST_NAME}",
-  "description": "Veil GLiNER Server Native Host",
+  "description": "AI-Safe Plugin GLiNER Server Native Host",
   "path": "${HOST_LAUNCHER}",
   "type": "stdio",
   "allowed_origins": ${ORIGINS}

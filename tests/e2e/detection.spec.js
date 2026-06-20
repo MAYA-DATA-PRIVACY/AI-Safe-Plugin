@@ -24,7 +24,7 @@ const OUTBOUND_PRIVACY_PAGE_URL = `${OFFLINE_SERVER_URL}${OUTBOUND_PRIVACY_PAGE_
 
 const TEST_PAGE_HTML = `<!DOCTYPE html>
 <html>
-<head><title>Veil detection test</title></head>
+<head><title>AI-Safe Plugin detection test</title></head>
 <body>
   <textarea id="userInput" style="width:400px;height:100px;"></textarea>
   <div class="markdown-body" id="responseArea">This is an AI response mentioning John Smith.</div>
@@ -33,7 +33,7 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
 
 const OUTBOUND_PRIVACY_PAGE_HTML = `<!DOCTYPE html>
 <html>
-<head><title>Veil outbound privacy fixture</title></head>
+<head><title>AI-Safe Plugin outbound privacy fixture</title></head>
 <body>
   <form id="composerForm">
     <textarea id="userInput" style="width:400px;height:100px;"></textarea>
@@ -74,7 +74,7 @@ const OUTBOUND_PRIVACY_PAGE_HTML = `<!DOCTYPE html>
 const HOSTILE_SCROLL_HTML = `<!DOCTYPE html>
 <html>
 <head>
-  <title>Veil hostile editor scroll test</title>
+  <title>AI-Safe Plugin hostile editor scroll test</title>
   <style>
     body { font-family: sans-serif; padding: 24px; }
     #scrollHost {
@@ -169,7 +169,7 @@ async function withExtensionPage(context, extensionId, callback) {
 async function setLocalServerOverride(context, extensionId, url) {
     const result = await withExtensionPage(context, extensionId, (page) => page.evaluate(
         (localServerUrl) => new Promise((resolve) => chrome.storage.local.set({
-            veilLocalServerUrlOverride: localServerUrl,
+            aiSafePluginLocalServerUrlOverride: localServerUrl,
         }, () => {
             chrome.runtime.sendMessage({ action: 'initialize' }, (initializeResponse) => {
                 chrome.runtime.sendMessage({ action: 'getStatus' }, (statusResponse) => {
@@ -731,8 +731,8 @@ test.describe('Field Status Badge', () => {
         await badge.click();
         await expect(page.locator('.ps-field-panel.ps-panel-visible')).toBeVisible({ timeout: 3000 });
 
-        // Panel should contain "Veil ·" header
-        await expect(page.locator('.ps-panel-title')).toContainText('Veil ·');
+        // Panel should contain "AI-Safe Plugin ·" header
+        await expect(page.locator('.ps-panel-title')).toContainText('AI-Safe Plugin ·');
 
         await page.close();
     });

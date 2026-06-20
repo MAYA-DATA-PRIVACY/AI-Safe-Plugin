@@ -9,7 +9,7 @@ const {
   capFifo,
   normalizeSiteHost,
   hostMatchesSite
-} = globalThis.VEIL_PATTERN_CATALOG;
+} = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
 
 const IGNORED_VALUES_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const IGNORED_VALUES_MAX_PER_SITE = 200;
@@ -114,7 +114,7 @@ const LABEL_EXPLANATIONS = {
 };
 const LABEL_EXPLANATION_FALLBACK = 'This looks like sensitive information you may not want to share.';
 
-// ── Selectors that identify known LLM assistant / thread areas so Veil never
+// ── Selectors that identify known LLM assistant / thread areas so AI-Safe Plugin never
 // scans or mutates provider-owned conversation history. ─────────────────────
 const ASSISTANT_RESPONSE_SELECTORS = [
   '[data-message-author-role="assistant"]',
@@ -144,7 +144,7 @@ const RESPONSE_AREA_SELECTORS = [
   ...USER_THREAD_MESSAGE_SELECTORS
 ];
 
-class VeilContentController {
+class AiSafePluginContentController {
   constructor() {
     this.settings = null;
     this.isEnabled = false;
@@ -350,10 +350,10 @@ class VeilContentController {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'initialize' });
       if (response?.mode) {
-        console.debug('[Veil] detection mode:', response.mode);
+        console.debug('[AI-Safe Plugin] detection mode:', response.mode);
       }
     } catch (error) {
-      console.error('[Veil] initialize failed:', error);
+      console.error('[AI-Safe Plugin] initialize failed:', error);
     }
   }
 
@@ -740,7 +740,7 @@ class VeilContentController {
   startDynamicMonitoring() {
     // This is now integrated into startMonitoring's MutationObserver
     // but we keep the method for clarity and potential separate use
-    console.debug('[Veil] Dynamic monitoring active for:', this.detectPlatform());
+    console.debug('[AI-Safe Plugin] Dynamic monitoring active for:', this.detectPlatform());
   }
 
   // Polling fallback for SPA navigation that doesn't trigger MutationObserver
@@ -762,7 +762,7 @@ class VeilContentController {
       try {
         elements = document.querySelectorAll(selector);
       } catch (error) {
-        console.warn('[Veil] Ignoring invalid monitored selector:', selector, error?.message || error);
+        console.warn('[AI-Safe Plugin] Ignoring invalid monitored selector:', selector, error?.message || error);
         return;
       }
       elements.forEach((element) => {
@@ -1004,7 +1004,7 @@ class VeilContentController {
       }
       if (event.key === 'Enter' && !event.shiftKey && this.hasPendingProtection(element)) {
         event.preventDefault();
-        this.showNotification('Veil is still protecting this message. Please wait a moment.', 'warning');
+        this.showNotification('AI-Safe Plugin is still protecting this message. Please wait a moment.', 'warning');
       }
       if (event.key === 'Enter' && !event.shiftKey && this.hasUnreviewedRedactions(element)) {
         event.preventDefault();
@@ -1036,7 +1036,7 @@ class VeilContentController {
       handleSubmit = (event) => {
         if (this.hasPendingProtection(element)) {
           event.preventDefault();
-          this.showNotification('Veil is still protecting this message. Please wait a moment.', 'warning');
+          this.showNotification('AI-Safe Plugin is still protecting this message. Please wait a moment.', 'warning');
         }
         if (this.hasUnreviewedRedactions(element)) {
           event.preventDefault();
@@ -1139,7 +1139,7 @@ class VeilContentController {
   // Field Status Badge
   // ═══════════════════════════════════════════════════════════
 
-  // Inline SVG monogram derived from veil-icon.svg — single-color path
+  // Inline SVG monogram derived from ai-safe-plugin-icon.svg — single-color path
   // representing the "stacked bars" visual mark at 14×14.
   _buildBadgeSvg(extraClass) {
     const ns = 'http://www.w3.org/2000/svg';
@@ -1150,7 +1150,7 @@ class VeilContentController {
     svg.setAttribute('fill', 'currentColor');
     svg.setAttribute('aria-hidden', 'true');
     if (extraClass) svg.setAttribute('class', extraClass);
-    // Three horizontal bars (simplified from veil-icon rect elements)
+    // Three horizontal bars (simplified from ai-safe-plugin-icon rect elements)
     [[1, 4, 12, 2], [1, 7, 12, 2], [1, 10, 8, 2]].forEach(([x, y, w, h]) => {
       const rect = document.createElementNS(ns, 'rect');
       rect.setAttribute('x', String(x));
@@ -1256,7 +1256,7 @@ class VeilContentController {
 
     if (analyzing) {
       badge.classList.add('ps-badge-scanning');
-      badge.title = 'Veil — scanning';
+      badge.title = 'AI-Safe Plugin — scanning';
       countEl.textContent = '';
     } else if (unredacted.length > 0) {
       badge.classList.add('ps-badge-pending');
@@ -1280,11 +1280,11 @@ class VeilContentController {
     } else if (this.modelOffline) {
       badge.classList.add('ps-badge-idle', 'ps-badge-fallback');
       countEl.textContent = '';
-      badge.title = 'Veil — regex-only mode';
+      badge.title = 'AI-Safe Plugin — regex-only mode';
     } else {
       badge.classList.add('ps-badge-idle');
       countEl.textContent = '';
-      badge.title = 'Veil';
+      badge.title = 'AI-Safe Plugin';
     }
 
     // Offline is a modifier on top of the other states: keep the dot visible
@@ -1417,7 +1417,7 @@ class VeilContentController {
 
     const title = document.createElement('span');
     title.className = 'ps-panel-title';
-    title.textContent = `Veil · ${state.items.length} item${state.items.length === 1 ? '' : 's'}`;
+    title.textContent = `AI-Safe Plugin · ${state.items.length} item${state.items.length === 1 ? '' : 's'}`;
     header.appendChild(title);
 
     // Risk chip (sourced from stored sensitivity)
@@ -2030,7 +2030,7 @@ class VeilContentController {
       this.updateStats(newItems.filter((i) => !i.redacted).length, 0);
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
     } catch (error) {
-      console.error('[Veil] detection error:', error);
+      console.error('[AI-Safe Plugin] detection error:', error);
       const staged = this.redactions.get(element);
       if (staged?.pendingRefinement) {
         staged.pendingRefinement = false;
@@ -2479,7 +2479,7 @@ class VeilContentController {
       this.siteRedactCount += 1;
       chrome.storage.local.set({ [this.getSiteRedactCountKey()]: this.siteRedactCount });
       if (this.siteRedactCount === 3 && !this.settings.autoRedact) {
-        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in Veil settings to do this automatically.', 'info'), 1200);
+        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in AI-Safe Plugin settings to do this automatically.', 'info'), 1200);
       }
     }
   }
@@ -3959,7 +3959,7 @@ class VeilContentController {
 
       chrome.storage.local.set({ [key]: payload });
     } catch (e) {
-      console.error('[Veil] cache persist error:', e);
+      console.error('[AI-Safe Plugin] cache persist error:', e);
     }
   }
 
@@ -3980,7 +3980,7 @@ class VeilContentController {
         chrome.storage.local.remove(keysToRemove);
       }
     } catch (e) {
-      console.error('[Veil] cache rehydration error:', e);
+      console.error('[AI-Safe Plugin] cache rehydration error:', e);
     }
   }
 
@@ -4146,7 +4146,7 @@ class VeilContentController {
     const { detections, redactions } = this.computeLiveStats();
     try {
       chrome.runtime.sendMessage({
-        action: 'veilStatsPush',
+        action: 'aiSafePluginStatsPush',
         detected: detections,
         protected: redactions
       }).catch(() => { /* SW asleep / no receiver — non-fatal */ });
@@ -4216,7 +4216,7 @@ class VeilContentController {
 
     chrome.storage.local.set({ [MASK_MODE_HINT_STORAGE_KEY]: true });
     this.showNotification(
-      'Mask mode replaces sensitive text with [TYPE REDACTED] tags. For more natural replacements later, switch to Anonymize in Veil settings.',
+      'Mask mode replaces sensitive text with [TYPE REDACTED] tags. For more natural replacements later, switch to Anonymize in AI-Safe Plugin settings.',
       'info',
       3600
     );
@@ -4339,11 +4339,11 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   getSiteAliasKey() {
-    return `veil::aliases::${location.hostname}`;
+    return `ai_safe_plugin::aliases::${location.hostname}`;
   }
 
   getSiteRedactCountKey() {
-    return `veil::redactCount::${location.hostname}`;
+    return `ai_safe_plugin::redactCount::${location.hostname}`;
   }
 
   async loadSiteAliasLedger() {
@@ -4376,11 +4376,11 @@ class VeilContentController {
   }
 
   // ── Persistent per-site ignore list (U3) ──────────────────────────────────
-  // Values the user chose to "Ignore on this site" so Veil stops flagging them
+  // Values the user chose to "Ignore on this site" so AI-Safe Plugin stops flagging them
   // across reloads. Stored per host with a 90-day TTL and FIFO cap.
 
   getSiteIgnoredKey() {
-    return `veil::ignored::${location.hostname}`;
+    return `ai_safe_plugin::ignored::${location.hostname}`;
   }
 
   async loadSiteIgnoredValues() {
@@ -4443,8 +4443,8 @@ class VeilContentController {
     return !HIGH_RISK_LABELS.includes(label);
   }
 
-  // Build the popup/settings redaction key from currently active Veil states only.
-  // Veil must never rewrite provider-owned thread history with original values.
+  // Build the popup/settings redaction key from currently active AI-Safe Plugin states only.
+  // AI-Safe Plugin must never rewrite provider-owned thread history with original values.
   buildVisibleRedactionKey() {
     // Start with persisted ledger so entries survive after the chat app
     // clears the input field on submit.
@@ -4481,7 +4481,7 @@ class VeilContentController {
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => new VeilContentController());
+  document.addEventListener('DOMContentLoaded', () => new AiSafePluginContentController());
 } else {
-  new VeilContentController();
+  new AiSafePluginContentController();
 }

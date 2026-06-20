@@ -121,7 +121,7 @@ def test_post_without_token_is_unauthorized():
             headers={"Content-Type": "application/json"},
         )
         assert status == 401
-        assert b"Veil token" in payload
+        assert b"AI-Safe Plugin token" in payload
 
 
 def test_post_with_valid_token_is_accepted():
@@ -130,7 +130,7 @@ def test_post_with_valid_token_is_accepted():
         status, _ = request(
             server, "POST", "/detect",
             body=json.dumps({"text": "hi"}),
-            headers={"Content-Type": "application/json", "X-Veil-Token": "secret-token"},
+            headers={"Content-Type": "application/json", "X-AI-Safe-Plugin-Token": "secret-token"},
         )
         assert status == 200
 
@@ -141,7 +141,7 @@ def test_post_with_wrong_token_is_unauthorized():
         status, _ = request(
             server, "POST", "/detect",
             body=json.dumps({"text": "hi"}),
-            headers={"Content-Type": "application/json", "X-Veil-Token": "wrong"},
+            headers={"Content-Type": "application/json", "X-AI-Safe-Plugin-Token": "wrong"},
         )
         assert status == 401
 

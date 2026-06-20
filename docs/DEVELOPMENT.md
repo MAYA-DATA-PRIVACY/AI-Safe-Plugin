@@ -1,6 +1,6 @@
 # Development Guide
 
-Everything you need to run Veil locally, make changes, and test them end-to-end.
+Everything you need to run AI-Safe Plugin locally, make changes, and test them end-to-end.
 
 ---
 
@@ -18,15 +18,15 @@ Everything you need to run Veil locally, make changes, and test them end-to-end.
 ## 1. Clone the repo
 
 ```bash
-git clone https://github.com/Maya-Data-Privacy/Veil.git
-cd Veil
+git clone https://github.com/Maya-Data-Privacy/AI-Safe-Plugin.git
+cd AI-Safe Plugin
 ```
 
 ---
 
 ## 2. Start the GLiNER2 inference server
 
-The extension sends text to a local Python HTTP server for NER inference. Detection is local by default. Optional Maya anonymisation can send selected anonymisation payloads to Maya only when Anonymize mode and a Maya API key are configured. Veil uses a pinned `uv`-managed runtime instead of an ad-hoc `venv + pip` flow.
+The extension sends text to a local Python HTTP server for NER inference. Detection is local by default. Optional Maya anonymisation can send selected anonymisation payloads to Maya only when Anonymize mode and a Maya API key are configured. AI-Safe Plugin uses a pinned `uv`-managed runtime instead of an ad-hoc `venv + pip` flow.
 
 ```bash
 # Create/update the managed .venv from uv.lock
@@ -42,7 +42,7 @@ npm run run-gliner2
 You should see:
 
 ```
-[Veil] GLiNER2 server running on http://127.0.0.1:8765
+[AI-Safe Plugin] GLiNER2 server running on http://127.0.0.1:8765
 ```
 
 Leave this terminal open while developing.
@@ -55,7 +55,7 @@ Leave this terminal open while developing.
 2. Enable **Developer mode** (toggle in the top-right corner).
 3. Click **Load unpacked**.
 4. Select the `extension/` directory in this repository (the folder containing `manifest.json`).
-5. The Veil icon should appear in your toolbar. Pin it for easy access.
+5. The AI-Safe Plugin icon should appear in your toolbar. Pin it for easy access.
 
 > **Tip:** After editing any extension file, click the refresh icon on the `chrome://extensions` card (or press `Ctrl+R` on that page) to reload the extension. Content scripts on already-open tabs need the tab to be refreshed as well.
 
@@ -66,7 +66,7 @@ Leave this terminal open while developing.
 There is no bundler — all JS/CSS is loaded directly by Chrome. Your loop is:
 
 1. Edit a file (e.g., `extension/content.js`).
-2. Go to `chrome://extensions` → click the reload icon for Veil.
+2. Go to `chrome://extensions` → click the reload icon for AI-Safe Plugin.
 3. Refresh the target tab (ChatGPT, Gemini, Claude, etc.).
 4. Inspect with **F12 → Console** (for page errors) or open the **Service Worker** devtools from `chrome://extensions` (for background.js errors).
 
@@ -74,7 +74,7 @@ There is no bundler — all JS/CSS is loaded directly by Chrome. Your loop is:
 
 ## 5. Inspecting the background service worker
 
-1. On `chrome://extensions`, click **"Service Worker"** link under Veil.
+1. On `chrome://extensions`, click **"Service Worker"** link under AI-Safe Plugin.
 2. A DevTools window opens attached to `background.js`.
 3. You can set breakpoints, inspect `chrome.storage`, and watch network requests to `127.0.0.1:8765`.
 
@@ -95,7 +95,7 @@ All three should exit silently (no output = no syntax errors).
 ## 7. Project structure
 
 ```
-Veil/
+AI-Safe Plugin/
 ├── extension/             # MV3 extension source
 │   ├── manifest.json
 │   ├── background.js
@@ -150,7 +150,7 @@ Maya anonymisation remains opt-in. If configured in the extension, the Maya API 
 ```bash
 # Pack extension/ from chrome://extensions (Developer mode → Pack Extension)
 # or use the CLI tool:
-npx crx pack extension -o dist/veil.crx
+npx crx pack extension -o dist/ai-safe-plugin.crx
 ```
 
 Do **not** commit `.crx` or `.pem` files — they are gitignored.

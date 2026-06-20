@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build release assets for the local Veil backend installer."""
+"""Build release assets for the local AI-Safe Plugin backend installer."""
 
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
-UNIX_ARCHIVE = DIST / "veil-backend-unix.tar.gz"
-WINDOWS_ARCHIVE = DIST / "veil-backend-windows.zip"
-REPO_SLUG = "Maya-Data-Privacy/Veil"
+UNIX_ARCHIVE = DIST / "ai-safe-plugin-backend-unix.tar.gz"
+WINDOWS_ARCHIVE = DIST / "ai-safe-plugin-backend-windows.zip"
+REPO_SLUG = "Maya-Data-Privacy/AI-Safe-Plugin"
 BUNDLE_RELEASE_ARCNAME = ".runtime/bundle_release.json"
 INSTALLER_FILES = [
     ROOT / "scripts" / "installers" / "install.sh",
@@ -41,17 +41,17 @@ def load_package_version() -> str:
 
 
 def build_release_metadata() -> dict[str, str]:
-    tag = str(os.environ.get("VEIL_RELEASE_TAG") or "").strip()
+    tag = str(os.environ.get("AI_SAFE_PLUGIN_RELEASE_TAG") or "").strip()
     if not tag:
         tag = f"v{load_package_version()}"
 
-    html_url = str(os.environ.get("VEIL_RELEASE_HTML_URL") or "").strip()
+    html_url = str(os.environ.get("AI_SAFE_PLUGIN_RELEASE_HTML_URL") or "").strip()
     if not html_url:
         html_url = f"https://github.com/{REPO_SLUG}/releases/tag/{tag}"
 
     return {
         "tag": tag,
-        "published_at": str(os.environ.get("VEIL_RELEASE_PUBLISHED_AT") or "").strip(),
+        "published_at": str(os.environ.get("AI_SAFE_PLUGIN_RELEASE_PUBLISHED_AT") or "").strip(),
         "html_url": html_url,
         "repository": REPO_SLUG,
     }

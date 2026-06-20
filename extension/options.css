@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   Veil — Settings Page
+   AI-Safe Plugin — Settings Page
    Full Material Design 3 implementation
    Seed colour: #6750A4  |  https://m3.material.io/
    ═══════════════════════════════════════════════════════════ */
@@ -999,7 +999,7 @@ button.secondary:hover:not(:disabled) {
   box-shadow: var(--md-elev-1) !important;
 }
 
-/* Danger zone (Delete all Veil data) */
+/* Danger zone (Delete all AI-Safe Plugin data) */
 .opt-danger-zone {
   border-color: rgba(122, 82, 0, 0.45);
 }

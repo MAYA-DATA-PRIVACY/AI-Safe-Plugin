@@ -1,4 +1,4 @@
-(function initVeilPatternCatalog(root) {
+(function initAI-Safe PluginPatternCatalog(root) {
   const LEGACY_OPENAI_KEY_PATTERN = '\\bsk-[A-Za-z0-9]{20,}\\b';
 
   const DEFAULT_CUSTOM_PATTERNS = Object.freeze([
@@ -327,5 +327,5 @@
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   }
-  root.VEIL_PATTERN_CATALOG = api;
+  root.AI_SAFE_PLUGIN_PATTERN_CATALOG = api;
 }(typeof globalThis !== 'undefined' ? globalThis : this));

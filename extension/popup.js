@@ -6,16 +6,16 @@ const {
   cloneDefaultCustomPatterns,
   normalizeCustomPatterns,
   normalizeSiteHost
-} = globalThis.VEIL_PATTERN_CATALOG;
+} = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
 const DEFAULT_SERVER_MODEL = 'fastino/gliner2-large-v1';
 const SITE_SNOOZE_MS = 60 * 60 * 1000;
 const MODEL_SELECTION_ALIASES = {
   'fastino/gliner2-base-v1': DEFAULT_SERVER_MODEL
 };
-const VEIL_RELEASE_REPO_SLUG = 'Maya-Data-Privacy/Veil';
-const VEIL_RELEASE_BASE_URL = `https://github.com/${VEIL_RELEASE_REPO_SLUG}/releases/latest/download`;
-const VEIL_RELEASE_PAGE_URL = `https://github.com/${VEIL_RELEASE_REPO_SLUG}/releases`;
-const VEIL_RELEASE_API_URL = `https://api.github.com/repos/${VEIL_RELEASE_REPO_SLUG}/releases/latest`;
+const AI_SAFE_PLUGIN_RELEASE_REPO_SLUG = 'Maya-Data-Privacy/AI-Safe-Plugin';
+const AI_SAFE_PLUGIN_RELEASE_BASE_URL = `https://github.com/${AI_SAFE_PLUGIN_RELEASE_REPO_SLUG}/releases/latest/download`;
+const AI_SAFE_PLUGIN_RELEASE_PAGE_URL = `https://github.com/${AI_SAFE_PLUGIN_RELEASE_REPO_SLUG}/releases`;
+const AI_SAFE_PLUGIN_RELEASE_API_URL = `https://api.github.com/repos/${AI_SAFE_PLUGIN_RELEASE_REPO_SLUG}/releases/latest`;
 
 function normalizeSelectedModel(modelId) {
   const raw = String(modelId || '').trim();
@@ -72,7 +72,7 @@ class SettingsManager {
     this.stats = { detections: 0, redactions: 0 };
     this.localSecrets = {
       hfToken: '',
-      veilApiKey: ''
+      aiSafePluginApiKey: ''
     };
     this.selectedModel = DEFAULT_SERVER_MODEL;
     this.platformOs = '';
@@ -265,8 +265,8 @@ class SettingsManager {
     }
 
     // Wire toggle once
-    if (!toggle._veilBound) {
-      toggle._veilBound = true;
+    if (!toggle._aiSafePluginBound) {
+      toggle._aiSafePluginBound = true;
       toggle.addEventListener('click', () => {
         this.keyExpanded = !this.keyExpanded;
         toggle.setAttribute('aria-expanded', String(this.keyExpanded));
@@ -294,10 +294,10 @@ class SettingsManager {
 
   loadLocalSecrets() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['hfToken', 'veilApiKey', 'selectedModel'], (result) => {
+      chrome.storage.local.get(['hfToken', 'aiSafePluginApiKey', 'selectedModel'], (result) => {
         this.localSecrets = {
           hfToken: typeof result.hfToken === 'string' ? result.hfToken : '',
-          veilApiKey: typeof result.veilApiKey === 'string' ? result.veilApiKey : ''
+          aiSafePluginApiKey: typeof result.aiSafePluginApiKey === 'string' ? result.aiSafePluginApiKey : ''
         };
         const normalizedModel = normalizeSelectedModel(result.selectedModel);
         this.selectedModel = normalizedModel;
@@ -333,7 +333,7 @@ class SettingsManager {
   }
 
   renderAnonymizeAvailability() {
-    const hasKey = Boolean(this.localSecrets.veilApiKey);
+    const hasKey = Boolean(this.localSecrets.aiSafePluginApiKey);
     const anonymizeHint = document.getElementById('anonymizeHint');
     // Show hint only when Anonymize is selected AND no API key is saved
     if (anonymizeHint) anonymizeHint.hidden = hasKey || this.settings.redactionMode !== 'anonymize';
@@ -456,7 +456,7 @@ class SettingsManager {
     document.getElementById('confirmAddEntityButton').addEventListener('click', () => this.addEntityTypeFromForm());
 
     document.getElementById('resetButton').addEventListener('click', () => this.resetDefaults());
-    document.getElementById('deleteAllDataButton')?.addEventListener('click', () => this.deleteAllVeilData());
+    document.getElementById('deleteAllDataButton')?.addEventListener('click', () => this.deleteAllAI-Safe PluginData());
 
     document.getElementById('refreshServerButton').addEventListener('click', async () => {
       await this.refreshServerStatus();
@@ -499,7 +499,7 @@ class SettingsManager {
     document.getElementById('removeApiKeyButton').addEventListener('click', () => this.removeApiKey());
     document.getElementById('revealApiKeyButton').addEventListener('click', () => this.toggleApiKeyReveal());
     document.getElementById('toggleApiKeyVisibility').addEventListener('click', () => this.toggleApiKeyInputVisibility());
-    document.getElementById('veilApiKeyInput').addEventListener('keydown', (event) => {
+    document.getElementById('aiSafePluginApiKeyInput').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
         this.saveApiKey();
@@ -641,7 +641,7 @@ class SettingsManager {
     }
     if (this.serverState.portConflict) {
       text.textContent = 'Active (Port Busy)';
-      sub.textContent = 'Another local process owns port 8765. Veil will not stop it automatically.';
+      sub.textContent = 'Another local process owns port 8765. AI-Safe Plugin will not stop it automatically.';
       return;
     }
     if (this.serverState.running && !this.serverState.healthy) {
@@ -755,7 +755,7 @@ class SettingsManager {
       : [...new Set([...sites, host])];
     this.settings.excludedSites = next;
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ excludedSites: next, siteSnoozes }, () => this.setMessage(enabled ? 'Veil enabled here.' : 'Veil paused on this site.'));
+    chrome.storage.local.set({ excludedSites: next, siteSnoozes }, () => this.setMessage(enabled ? 'AI-Safe Plugin enabled here.' : 'AI-Safe Plugin paused on this site.'));
     this.renderSiteControls();
   }
 
@@ -767,7 +767,7 @@ class SettingsManager {
     siteSnoozes[host] = Date.now() + SITE_SNOOZE_MS;
     this.settings.excludedSites = excludedSites;
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ excludedSites, siteSnoozes }, () => this.setMessage('Veil paused here for 1 hour.'));
+    chrome.storage.local.set({ excludedSites, siteSnoozes }, () => this.setMessage('AI-Safe Plugin paused here for 1 hour.'));
     this.renderSiteControls();
   }
 
@@ -777,7 +777,7 @@ class SettingsManager {
     const siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
     delete siteSnoozes[host];
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('Veil resumed here.'));
+    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('AI-Safe Plugin resumed here.'));
     this.renderSiteControls();
   }
 
@@ -917,17 +917,17 @@ class SettingsManager {
   getNativeHostInstallCommand() {
     const platformOs = this.platformOs || this.detectPlatformOsFallback();
     if (platformOs === 'win') {
-      return `powershell -NoProfile -ExecutionPolicy Bypass -Command '$installer = Join-Path $env:TEMP ''VeilSetup.exe''; Invoke-WebRequest -UseBasicParsing -Uri ''${VEIL_RELEASE_BASE_URL}/VeilSetup.exe'' -OutFile $installer; Start-Process -FilePath $installer -ArgumentList ''/EXTENSION_ID=${chrome.runtime.id}'' -Wait'`;
+      return `powershell -NoProfile -ExecutionPolicy Bypass -Command '$installer = Join-Path $env:TEMP ''AISafePluginSetup.exe''; Invoke-WebRequest -UseBasicParsing -Uri ''${AI_SAFE_PLUGIN_RELEASE_BASE_URL}/AISafePluginSetup.exe'' -OutFile $installer; Start-Process -FilePath $installer -ArgumentList ''/EXTENSION_ID=${chrome.runtime.id}'' -Wait'`;
     }
-    return `curl -fsSL ${VEIL_RELEASE_BASE_URL}/install.sh | bash -s -- --extension-id ${chrome.runtime.id}`;
+    return `curl -fsSL ${AI_SAFE_PLUGIN_RELEASE_BASE_URL}/install.sh | bash -s -- --extension-id ${chrome.runtime.id}`;
   }
 
   getNativeHostUninstallCommand() {
     const platformOs = this.platformOs || this.detectPlatformOsFallback();
     if (platformOs === 'win') {
-      return `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${VEIL_RELEASE_BASE_URL}/uninstall.ps1' | iex; Uninstall-Veil"`;
+      return `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '${AI_SAFE_PLUGIN_RELEASE_BASE_URL}/uninstall.ps1' | iex; Uninstall-AiSafePlugin"`;
     }
-    return `curl -fsSL ${VEIL_RELEASE_BASE_URL}/uninstall.sh | bash`;
+    return `curl -fsSL ${AI_SAFE_PLUGIN_RELEASE_BASE_URL}/uninstall.sh | bash`;
   }
 
   getDefaultReleaseInfo() {
@@ -935,7 +935,7 @@ class SettingsManager {
       status: 'loading',
       latestTag: '',
       publishedAt: '',
-      htmlUrl: VEIL_RELEASE_PAGE_URL,
+      htmlUrl: AI_SAFE_PLUGIN_RELEASE_PAGE_URL,
       extensionUpdateAvailable: false,
       comparableToExtension: false,
       error: ''
@@ -996,7 +996,7 @@ class SettingsManager {
     this.renderReleaseInfo();
 
     try {
-      const response = await fetch(VEIL_RELEASE_API_URL, {
+      const response = await fetch(AI_SAFE_PLUGIN_RELEASE_API_URL, {
         headers: { Accept: 'application/vnd.github+json' },
         cache: 'no-store'
       });
@@ -1011,7 +1011,7 @@ class SettingsManager {
         status: 'ready',
         latestTag,
         publishedAt: String(payload?.published_at || payload?.created_at || '').trim(),
-        htmlUrl: String(payload?.html_url || VEIL_RELEASE_PAGE_URL).trim() || VEIL_RELEASE_PAGE_URL,
+        htmlUrl: String(payload?.html_url || AI_SAFE_PLUGIN_RELEASE_PAGE_URL).trim() || AI_SAFE_PLUGIN_RELEASE_PAGE_URL,
         extensionUpdateAvailable: comparison.extensionUpdateAvailable,
         comparableToExtension: comparison.comparableToExtension,
         error: ''
@@ -1056,7 +1056,7 @@ class SettingsManager {
       && this.normalizeVersionTag(installedBundleTag) === this.normalizeVersionTag(currentVersion);
 
     const resolvedReleaseLink = this._safeHttpsUrl(
-      this.releaseInfo.htmlUrl || this.serverMeta.bundleReleaseUrl || VEIL_RELEASE_PAGE_URL
+      this.releaseInfo.htmlUrl || this.serverMeta.bundleReleaseUrl || AI_SAFE_PLUGIN_RELEASE_PAGE_URL
     );
 
     if (releaseLink) {
@@ -1097,7 +1097,7 @@ class SettingsManager {
       setUpdateBlockVisible(false);
       releaseText.textContent = 'Checking GitHub for the latest release…';
       releaseSubtext.textContent = 'Re-run this command after a new release to update the local server bundle while keeping your cache and local config.';
-      applySidebarState('is-loading', 'Checking', 'Checking for updates', 'Veil is checking whether a newer extension or local server bundle is available.');
+      applySidebarState('is-loading', 'Checking', 'Checking for updates', 'AI-Safe Plugin is checking whether a newer extension or local server bundle is available.');
       return;
     }
 
@@ -1111,12 +1111,12 @@ class SettingsManager {
           return;
         }
         releaseText.textContent = `Local server verified: ${installedBundleTag}`;
-        releaseSubtext.textContent = `${this.releaseInfo.error || 'GitHub could not be reached right now.'} Veil can confirm the installed local server bundle on this machine, but it cannot check for newer releases at the moment.`;
+        releaseSubtext.textContent = `${this.releaseInfo.error || 'GitHub could not be reached right now.'} AI-Safe Plugin can confirm the installed local server bundle on this machine, but it cannot check for newer releases at the moment.`;
         applySidebarState('is-current', 'Verified', 'Local server verified', `Installed local server bundle ${installedBundleTag} is known. Checking GitHub for newer releases is temporarily unavailable.`);
         showNotice(
           'Release check delayed',
           'Installed local server bundle is verified',
-          `Veil can confirm that this machine is running local server bundle ${installedBundleTag}. GitHub could not be reached to check whether anything newer exists right now.`
+          `AI-Safe Plugin can confirm that this machine is running local server bundle ${installedBundleTag}. GitHub could not be reached to check whether anything newer exists right now.`
         );
         return;
       }
@@ -1150,7 +1150,7 @@ class SettingsManager {
       applySidebarState('is-available', 'Update', 'Backend current, extension behind', `The local server bundle is already on ${latestTag}, but the extension UI is still on v${currentVersion}.`);
       showNotice(
         'Extension update',
-        'Reload the extension to finish updating Veil',
+        'Reload the extension to finish updating AI-Safe Plugin',
         `Your local server bundle already matches ${latestTag}. Reload or reinstall the extension build from v${currentVersion} so the UI and backend are on the same release.`
       );
       return;
@@ -1158,9 +1158,9 @@ class SettingsManager {
 
     if (extensionUpdateAvailable && bundleNeedsRefresh) {
       setUpdateBlockVisible(true);
-      releaseText.textContent = `Veil update available: ${latestTag}`;
+      releaseText.textContent = `AI-Safe Plugin update available: ${latestTag}`;
       releaseSubtext.textContent = `Published ${published}. Extension build is v${currentVersion} and the installed local server bundle is ${installedBundleTag}. Update or reload the extension, then run the refresh command below so both parts land on ${latestTag}.`;
-      applySidebarState('is-available', 'Update', 'Extension and server update available', `A newer Veil release is available, and this machine still has the ${installedBundleTag} local server bundle.`);
+      applySidebarState('is-available', 'Update', 'Extension and server update available', `A newer AI-Safe Plugin release is available, and this machine still has the ${installedBundleTag} local server bundle.`);
       showNotice(
         'Update available',
         'Update the extension, then refresh the local server bundle',
@@ -1172,12 +1172,12 @@ class SettingsManager {
     if (extensionUpdateAvailable && bundleUnknown) {
       setUpdateBlockVisible(true);
       releaseText.textContent = `Extension update available: ${latestTag} (backend version unknown)`;
-      releaseSubtext.textContent = `Published ${published}. Update or reload the extension build first. Then run the refresh command below once so Veil can stamp and verify the installed local server bundle version.`;
-      applySidebarState('is-available', 'Update', 'Extension update available', `A newer Veil release is available, and this install still needs backend release metadata stamped locally.`);
+      releaseSubtext.textContent = `Published ${published}. Update or reload the extension build first. Then run the refresh command below once so AI-Safe Plugin can stamp and verify the installed local server bundle version.`;
+      applySidebarState('is-available', 'Update', 'Extension update available', `A newer AI-Safe Plugin release is available, and this install still needs backend release metadata stamped locally.`);
       showNotice(
         'Update available',
         'Update the extension and refresh local server metadata',
-        `You’re currently on v${currentVersion}. Reload the extension first, then run the refresh command below so Veil can verify which local server bundle is installed.`
+        `You’re currently on v${currentVersion}. Reload the extension first, then run the refresh command below so AI-Safe Plugin can verify which local server bundle is installed.`
       );
       return;
     }
@@ -1187,7 +1187,7 @@ class SettingsManager {
       const installedText = installedBundleTag || 'unknown bundle version';
       releaseText.textContent = `Local server bundle update available: ${latestTag}`;
       releaseSubtext.textContent = `Published ${published}. Installed bundle is ${installedText}. Run the refresh command below; once the local server bundle matches ${latestTag}, this notice will clear.`;
-      applySidebarState('is-available', 'Update', 'Local server update available', installedBundleTag ? 'A newer local server bundle is available for this install.' : 'This install needs one refresh so Veil can track the local server bundle version precisely.');
+      applySidebarState('is-available', 'Update', 'Local server update available', installedBundleTag ? 'A newer local server bundle is available for this install.' : 'This install needs one refresh so AI-Safe Plugin can track the local server bundle version precisely.');
       showNotice(
         'Server update',
         'Refresh the local server bundle',
@@ -1201,12 +1201,12 @@ class SettingsManager {
     if (extensionIsCurrent && bundleUnknown) {
       setUpdateBlockVisible(true);
       releaseText.textContent = `Extension is up to date: v${currentVersion}`;
-      releaseSubtext.textContent = `Latest GitHub release is ${latestTag}, published ${published}. This install still needs one local server refresh so Veil can verify and stamp the backend bundle version on this machine.`;
+      releaseSubtext.textContent = `Latest GitHub release is ${latestTag}, published ${published}. This install still needs one local server refresh so AI-Safe Plugin can verify and stamp the backend bundle version on this machine.`;
       applySidebarState('is-available', 'Refresh', 'Backend version needs verification', 'The extension is current, but this local server install is missing release metadata until you refresh it once.');
       showNotice(
         'Server metadata',
         'Refresh the local server bundle once',
-        `The extension is already on ${latestTag}. Run the refresh command below once so Veil can stamp and verify the backend bundle version for this install.`
+        `The extension is already on ${latestTag}. Run the refresh command below once so AI-Safe Plugin can stamp and verify the backend bundle version for this install.`
       );
       return;
     }
@@ -1223,14 +1223,14 @@ class SettingsManager {
       setUpdateBlockVisible(false);
       releaseText.textContent = `Extension is up to date: v${currentVersion}`;
       releaseSubtext.textContent = `Latest GitHub release is ${latestTag}, published ${published}. Refresh the local server bundle below if you want to stamp this install with the latest release metadata or repair it in place.`;
-      applySidebarState('is-current', 'Up to date', 'Everything is up to date', 'Veil is on the latest published extension release.');
+      applySidebarState('is-current', 'Up to date', 'Everything is up to date', 'AI-Safe Plugin is on the latest published extension release.');
       return;
     }
 
     setUpdateBlockVisible(true);
     releaseText.textContent = `Latest GitHub release channel: ${latestTag}`;
     releaseSubtext.textContent = `Published ${published}. This tag does not map cleanly to the installed extension version, so treat the command below as a local server refresh command, not as proof that the extension itself is outdated.`;
-    applySidebarState('is-loading', 'Preview', 'Preview release detected', 'You are on a preview or fork release channel, so Veil is keeping the manual refresh command available.');
+    applySidebarState('is-loading', 'Preview', 'Preview release detected', 'You are on a preview or fork release channel, so AI-Safe Plugin is keeping the manual refresh command available.');
   }
 
   getDefaultServerMeta() {
@@ -1288,9 +1288,9 @@ class SettingsManager {
       if (this.serverState.portConflict) {
         portStatus.textContent = 'Occupied by another local process';
       } else if (this.serverState.running && this.serverState.healthy) {
-        portStatus.textContent = `Veil server online${this.serverState.pid ? ` (PID ${this.serverState.pid})` : ''}`;
+        portStatus.textContent = `AI-Safe Plugin server online${this.serverState.pid ? ` (PID ${this.serverState.pid})` : ''}`;
       } else if (this.serverState.running) {
-        portStatus.textContent = 'Veil server starting';
+        portStatus.textContent = 'AI-Safe Plugin server starting';
       } else {
         portStatus.textContent = 'Available';
       }
@@ -1429,20 +1429,20 @@ class SettingsManager {
   }
 
   getInputApiKey() {
-    const node = document.getElementById('veilApiKeyInput');
+    const node = document.getElementById('aiSafePluginApiKeyInput');
     return String(node?.value || '').trim();
   }
 
   async saveApiKey() {
-    const veilApiKey = this.getInputApiKey();
-    if (!veilApiKey) {
+    const aiSafePluginApiKey = this.getInputApiKey();
+    if (!aiSafePluginApiKey) {
       this.setMessage('Please enter an API key.', true);
       return;
     }
     await new Promise((resolve) => {
-      chrome.storage.local.set({ veilApiKey }, resolve);
+      chrome.storage.local.set({ aiSafePluginApiKey }, resolve);
     });
-    this.localSecrets.veilApiKey = veilApiKey;
+    this.localSecrets.aiSafePluginApiKey = aiSafePluginApiKey;
     // Auto-activate Anonymize mode when API key is set
     this.updateSetting('redactionMode', 'anonymize');
     this.settings.redactionMode = 'anonymize';
@@ -1457,9 +1457,9 @@ class SettingsManager {
 
   async removeApiKey() {
     await new Promise((resolve) => {
-      chrome.storage.local.set({ veilApiKey: '' }, resolve);
+      chrome.storage.local.set({ aiSafePluginApiKey: '' }, resolve);
     });
-    this.localSecrets.veilApiKey = '';
+    this.localSecrets.aiSafePluginApiKey = '';
     // Revert to Mask mode when API key is removed
     this.updateSetting('redactionMode', 'mask');
     this.settings.redactionMode = 'mask';
@@ -1467,7 +1467,7 @@ class SettingsManager {
     this.renderAnonymizeAvailability();
     this.renderModeSummary();
     this.apiKeyRevealed = false;
-    const input = document.getElementById('veilApiKeyInput');
+    const input = document.getElementById('aiSafePluginApiKeyInput');
     if (input) input.value = '';
     this.renderApiKeyState();
     this.setMessage('API key removed.');
@@ -1479,7 +1479,7 @@ class SettingsManager {
     const btn = document.getElementById('revealApiKeyButton');
     if (!preview || !btn) return;
     if (this.apiKeyRevealed) {
-      const key = this.localSecrets.veilApiKey || '';
+      const key = this.localSecrets.aiSafePluginApiKey || '';
       preview.textContent = key.length > 8 ? `${key.slice(0, 4)}...${key.slice(-4)}` : key;
       btn.textContent = 'Hide';
     } else {
@@ -1489,7 +1489,7 @@ class SettingsManager {
   }
 
   toggleApiKeyInputVisibility() {
-    const input = document.getElementById('veilApiKeyInput');
+    const input = document.getElementById('aiSafePluginApiKeyInput');
     const btn = document.getElementById('toggleApiKeyVisibility');
     if (!input || !btn) return;
     const isPassword = input.type === 'password';
@@ -1507,7 +1507,7 @@ class SettingsManager {
   }
 
   renderApiKeyState() {
-    const hasKey = Boolean(this.localSecrets.veilApiKey);
+    const hasKey = Boolean(this.localSecrets.aiSafePluginApiKey);
     const savedState = document.getElementById('apiKeySavedState');
     const inputState = document.getElementById('apiKeyInputState');
     if (!savedState || !inputState) return;
@@ -1528,11 +1528,11 @@ class SettingsManager {
       const preview = document.getElementById('apiKeyPreview');
       if (preview) {
         preview.textContent = this.apiKeyRevealed
-          ? this.localSecrets.veilApiKey
+          ? this.localSecrets.aiSafePluginApiKey
           : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
       }
     } else {
-      const input = document.getElementById('veilApiKeyInput');
+      const input = document.getElementById('aiSafePluginApiKeyInput');
       if (input) input.value = '';
     }
   }
@@ -1747,9 +1747,9 @@ class SettingsManager {
   _safeHttpsUrl(url) {
     try {
       const u = new URL(url);
-      return u.protocol === 'https:' ? url : VEIL_RELEASE_PAGE_URL;
+      return u.protocol === 'https:' ? url : AI_SAFE_PLUGIN_RELEASE_PAGE_URL;
     } catch {
-      return VEIL_RELEASE_PAGE_URL;
+      return AI_SAFE_PLUGIN_RELEASE_PAGE_URL;
     }
   }
 
@@ -1996,8 +1996,8 @@ class SettingsManager {
   }
 
   // ── Ignored values (U3): persistent per-site allowlist stored under
-  //    `veil::ignored::<host>` keys, managed here. ──
-  static IGNORED_KEY_PREFIX = 'veil::ignored::';
+  //    `ai_safe_plugin::ignored::<host>` keys, managed here. ──
+  static IGNORED_KEY_PREFIX = 'ai_safe_plugin::ignored::';
 
   async _readIgnoredValuesBySite() {
     const all = await new Promise((resolve) => chrome.storage.local.get(null, resolve));
@@ -2098,12 +2098,12 @@ class SettingsManager {
   }
 
   /**
-   * Full wipe of all Veil browser-local data (H6). Uses a two-click confirm — the
+   * Full wipe of all AI-Safe Plugin browser-local data (H6). Uses a two-click confirm — the
    * first click arms the button for 5 s, the second performs the wipe — instead of
    * window.confirm. After clearing, defaults are re-seeded; content scripts react to
    * the storage change via their chrome.storage.onChanged listener.
    */
-  async deleteAllVeilData() {
+  async deleteAllAI-Safe PluginData() {
     const btn = document.getElementById('deleteAllDataButton');
     if (!btn) return;
 
@@ -2121,13 +2121,13 @@ class SettingsManager {
 
     if (this._deleteDataTimer) clearTimeout(this._deleteDataTimer);
     this._deleteDataArmed = false;
-    btn.textContent = btn.dataset.originalLabel || 'Delete all Veil data';
+    btn.textContent = btn.dataset.originalLabel || 'Delete all AI-Safe Plugin data';
 
     await chrome.storage.local.clear();
     await chrome.storage.local.set(DEFAULT_SETTINGS);
     this.settings = { ...DEFAULT_SETTINGS };
     this.render();
-    this.setMessage('All Veil data deleted. Settings restored to defaults.');
+    this.setMessage('All AI-Safe Plugin data deleted. Settings restored to defaults.');
   }
 
   setMessage(text, isError = false) {
@@ -2192,8 +2192,8 @@ class OnboardingWizard {
   }
 
   async _checkAndShow() {
-    const result = await new Promise((resolve) => chrome.storage.local.get(['veilOnboardingDone'], resolve));
-    if (result.veilOnboardingDone) return;
+    const result = await new Promise((resolve) => chrome.storage.local.get(['aiSafePluginOnboardingDone'], resolve));
+    if (result.aiSafePluginOnboardingDone) return;
     this._populateInstallCmd();
     this._goToStep(0);
     this._setVisible(true);
@@ -2323,7 +2323,7 @@ class OnboardingWizard {
 
   _finish() {
     this._stopHostPolling();
-    chrome.storage.local.set({ veilOnboardingDone: true });
+    chrome.storage.local.set({ aiSafePluginOnboardingDone: true });
     this._setVisible(false);
     this.sm.renderMaskHint();
   }
@@ -2336,7 +2336,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   const sm = new SettingsManager();
-  window.__VEIL_SETTINGS_MANAGER__ = sm;
+  window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__ = sm;
   new OnboardingWizard(sm);
 
   // Sidebar scroll-spy for options page

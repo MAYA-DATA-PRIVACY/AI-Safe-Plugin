@@ -34,7 +34,7 @@ If applicable, add screenshots or a screen recording.
 |-------|-------|
 | Browser | e.g. Chrome 124 |
 | OS | e.g. macOS 14.4 |
-| Veil version | e.g. 1.0.0 |
+| AI-Safe Plugin version | e.g. 1.0.0 |
 | GLiNER server running? | yes / no |
 
 ## Console errors

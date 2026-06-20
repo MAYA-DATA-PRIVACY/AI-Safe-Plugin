@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INSTALL_DIR="${VEIL_INSTALL_DIR:-}"
+INSTALL_DIR="${AI_SAFE_PLUGIN_INSTALL_DIR:-}"
 
-collect_veil_pids() {
+collect_ai_safe_plugin_pids() {
   local install_dir="$1"
   local -a patterns=(
     "${install_dir}/server/gliner2_server.py"
@@ -27,9 +27,9 @@ collect_veil_pids() {
   printf '%s\n' "${pids[@]}"
 }
 
-kill_veil_processes() {
+kill_ai_safe_plugin_processes() {
   local install_dir="$1"
-  mapfile -t pids < <(collect_veil_pids "${install_dir}")
+  mapfile -t pids < <(collect_ai_safe_plugin_pids "${install_dir}")
   local pid
   for pid in "${pids[@]}"; do
     kill "${pid}" >/dev/null 2>&1 || true
@@ -40,14 +40,14 @@ kill_veil_processes() {
   done
 }
 
-wait_for_veil_shutdown() {
+wait_for_ai_safe_plugin_shutdown() {
   local install_dir="$1"
   local attempts="${2:-10}"
   local remaining=()
   local i
 
   for ((i=0; i<attempts; i+=1)); do
-    mapfile -t remaining < <(collect_veil_pids "${install_dir}")
+    mapfile -t remaining < <(collect_ai_safe_plugin_pids "${install_dir}")
     if [[ "${#remaining[@]}" -eq 0 ]]; then
       return 0
     fi
@@ -85,8 +85,8 @@ done
 
 OS_NAME="$(uname -s)"
 case "${OS_NAME}" in
-  Linux*) PLATFORM="linux"; DEFAULT_INSTALL_DIR="${HOME}/.local/share/veil" ;;
-  Darwin*) PLATFORM="mac"; DEFAULT_INSTALL_DIR="${HOME}/Library/Application Support/Veil" ;;
+  Linux*) PLATFORM="linux"; DEFAULT_INSTALL_DIR="${HOME}/.local/share/ai-safe-plugin" ;;
+  Darwin*) PLATFORM="mac"; DEFAULT_INSTALL_DIR="${HOME}/Library/Application Support/AI-Safe Plugin" ;;
   *)
     echo "Unsupported OS for uninstall.sh: ${OS_NAME}" >&2
     exit 1
@@ -96,11 +96,11 @@ esac
 INSTALL_DIR="${INSTALL_DIR:-${DEFAULT_INSTALL_DIR}}"
 
 if [[ ! -d "${INSTALL_DIR}" ]]; then
-  echo "Veil local server is not installed at ${INSTALL_DIR}."
+  echo "AI-Safe Plugin local server is not installed at ${INSTALL_DIR}."
   exit 0
 fi
 
-echo "Removing Veil local server from ${INSTALL_DIR}..."
+echo "Removing AI-Safe Plugin local server from ${INSTALL_DIR}..."
 
 if [[ "${PLATFORM}" == "linux" ]]; then
   [[ -f "${INSTALL_DIR}/server/autostart/uninstall_linux.sh" ]] && bash "${INSTALL_DIR}/server/autostart/uninstall_linux.sh" || true
@@ -110,10 +110,10 @@ else
   [[ -f "${INSTALL_DIR}/server/native-host/uninstall_mac.sh" ]] && bash "${INSTALL_DIR}/server/native-host/uninstall_mac.sh" || true
 fi
 
-kill_veil_processes "${INSTALL_DIR}"
-wait_for_veil_shutdown "${INSTALL_DIR}" || true
+kill_ai_safe_plugin_processes "${INSTALL_DIR}"
+wait_for_ai_safe_plugin_shutdown "${INSTALL_DIR}" || true
 remove_install_dir "${INSTALL_DIR}"
 
 echo
-echo "Veil uninstall complete."
+echo "AI-Safe Plugin uninstall complete."
 echo "Removed: ${INSTALL_DIR} (server, venv, models, and all cached data)"

@@ -1,5 +1,5 @@
 /**
- * fixtures.js — Playwright test fixtures for the Veil extension (CommonJS).
+ * fixtures.js — Playwright test fixtures for the AI-Safe Plugin extension (CommonJS).
  *
  * Usage:
  *   const { test, expect } = require('./fixtures');
@@ -10,7 +10,7 @@ const path = require('path');
 const EXTENSION_PATH = path.resolve(__dirname, '..', '..', 'extension');
 
 /**
- * Launch a Chromium instance with the Veil extension loaded.
+ * Launch a Chromium instance with the AI-Safe Plugin extension loaded.
  */
 async function launchWithExtension() {
     const context = await chromium.launchPersistentContext('', {

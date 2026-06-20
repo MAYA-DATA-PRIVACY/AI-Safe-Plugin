@@ -508,7 +508,7 @@ wheels = [
 ]
 
 [[package]]
-name = "veil-local-runtime"
+name = "ai-safe-plugin-local-runtime"
 version = "1.2.8"
 source = { virtual = "." }
 dependencies = [

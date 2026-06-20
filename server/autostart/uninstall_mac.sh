@@ -11,5 +11,5 @@ remove_plist() {
   fi
 }
 
-remove_plist "com.veil.gliner.server"
+remove_plist "com.ai_safe_plugin.gliner.server"
 remove_plist "com.privacyshield.gliner2"

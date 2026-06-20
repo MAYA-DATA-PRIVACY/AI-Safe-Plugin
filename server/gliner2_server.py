@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local GLiNER2 inference bridge for the Veil extension.
+Local GLiNER2 inference bridge for the AI-Safe Plugin extension.
 
 The service binds to localhost by default and never forwards prompt text to any
 external API except optional anonymization proxy requests made to a configured
@@ -105,7 +105,7 @@ DEFAULT_ANONYMIZATION_ENDPOINT = "https://app.mayadataprivacy.in/mdp/engine/anon
 ANON_REQUEST_TIMEOUT_SEC = 10.0
 # When set to "1", restore verbose anonymization logging (full upstream response and
 # body previews) for debugging. Off by default so raw PII never reaches the logs.
-DEBUG_ANON_LOGS = os.environ.get("VEIL_DEBUG_ANON_LOGS", "") == "1"
+DEBUG_ANON_LOGS = os.environ.get("AI_SAFE_PLUGIN_DEBUG_ANON_LOGS", "") == "1"
 PROCESS_SESSION_ID = uuid.uuid4().hex[:10]
 PROCESS_LOCK_HANDLE = None
 
@@ -197,7 +197,7 @@ def ensure_runtime_dir() -> None:
 def load_or_create_token() -> str:
     """Return the shared server token, generating and persisting one if absent.
 
-    The token gates the detection endpoints so that only the Veil extension (which
+    The token gates the detection endpoints so that only the AI-Safe Plugin extension (which
     fetches it through the native messaging host) can call them. It is stored in
     RUNTIME_DIR with 0600 permissions on POSIX; an existing valid token is reused so
     that server restarts do not invalidate already-configured clients.
@@ -953,7 +953,7 @@ def make_handler(
             # Only the browser extension may call the API from a page context. The
             # shared token (auth_token) is the real gate for non-browser clients;
             # CORS stays least-privilege. Power users can widen this via
-            # VEIL_EXTRA_ALLOWED_ORIGINS (exact origins).
+            # AI_SAFE_PLUGIN_EXTRA_ALLOWED_ORIGINS (exact origins).
             if (
                 origin.startswith("chrome-extension://")
                 or origin.startswith("moz-extension://")
@@ -984,10 +984,10 @@ def make_handler(
         def _reject_unauthorized(self) -> bool:
             if auth_token is None:
                 return False
-            provided = str(self.headers.get("X-Veil-Token", ""))
+            provided = str(self.headers.get("X-AI-Safe-Plugin-Token", ""))
             if not hmac.compare_digest(provided, auth_token):
                 self._write_json(
-                    {"ok": False, "error": "Missing or invalid Veil token."},
+                    {"ok": False, "error": "Missing or invalid AI-Safe Plugin token."},
                     status_code=401,
                 )
                 return True
@@ -1204,13 +1204,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-auth",
         action="store_true",
-        help="Disable shared-token auth on detection endpoints (also via VEIL_NO_AUTH=1).",
+        help="Disable shared-token auth on detection endpoints (also via AI_SAFE_PLUGIN_NO_AUTH=1).",
     )
     return parser.parse_args()
 
 
 def resolve_extra_allowed_origins() -> Tuple[str, ...]:
-    raw = str(os.environ.get("VEIL_EXTRA_ALLOWED_ORIGINS", "")).strip()
+    raw = str(os.environ.get("AI_SAFE_PLUGIN_EXTRA_ALLOWED_ORIGINS", "")).strip()
     if not raw:
         return ()
     return tuple(o.strip() for o in raw.split(",") if o.strip())
@@ -1257,10 +1257,10 @@ def main() -> None:
     else:
         print("Lazy-load mode enabled: ONNX model loads on first detection request.")
 
-    auth_disabled = args.no_auth or os.environ.get("VEIL_NO_AUTH") == "1"
+    auth_disabled = args.no_auth or os.environ.get("AI_SAFE_PLUGIN_NO_AUTH") == "1"
     auth_token = None if auth_disabled else load_or_create_token()
     if auth_token is None:
-        print("Token auth disabled (--no-auth/VEIL_NO_AUTH); detection endpoints are unauthenticated.")
+        print("Token auth disabled (--no-auth/AI_SAFE_PLUGIN_NO_AUTH); detection endpoints are unauthenticated.")
     handler = make_handler(
         service,
         args.max_chars,

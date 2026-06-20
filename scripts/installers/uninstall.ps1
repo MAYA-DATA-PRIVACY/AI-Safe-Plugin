@@ -1,10 +1,10 @@
-function Stop-VeilWindowsProcesses {
+function Stop-AiSafePluginWindowsProcesses {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir
     )
 
-    foreach ($taskName in @("Veil GLiNER Server", "PrivacyShieldGLiNER2")) {
+    foreach ($taskName in @("AI-Safe Plugin GLiNER Server", "PrivacyShieldGLiNER2")) {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($null -ne $task) {
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
@@ -55,21 +55,21 @@ function Stop-VeilWindowsProcesses {
     }
 }
 
-function Uninstall-Veil {
+function Uninstall-AiSafePlugin {
     param(
-        [string]$InstallDir = $env:VEIL_INSTALL_DIR
+        [string]$InstallDir = $env:AI_SAFE_PLUGIN_INSTALL_DIR
     )
 
     if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-        $InstallDir = Join-Path $env:LOCALAPPDATA "Veil"
+        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe Plugin"
     }
 
     if (-not (Test-Path -LiteralPath $InstallDir)) {
-        Write-Host "Veil local server is not installed at $InstallDir."
+        Write-Host "AI-Safe Plugin local server is not installed at $InstallDir."
         return
     }
 
-    Write-Host "Removing Veil local server from $InstallDir..."
+    Write-Host "Removing AI-Safe Plugin local server from $InstallDir..."
 
     $nativeHostUninstall = Join-Path $InstallDir "server\native-host\uninstall_windows.bat"
     $autostartUninstall = Join-Path $InstallDir "server\autostart\uninstall_windows.bat"
@@ -85,7 +85,7 @@ function Uninstall-Veil {
         $null = $LASTEXITCODE
     }
 
-    Stop-VeilWindowsProcesses -InstallDir $InstallDir
+    Stop-AiSafePluginWindowsProcesses -InstallDir $InstallDir
 
     $removed = $false
     for ($attempt = 1; $attempt -le 3; $attempt++) {
@@ -104,7 +104,7 @@ function Uninstall-Veil {
 
     Write-Host ""
     if ($removed) {
-        Write-Host "Veil uninstall complete."
+        Write-Host "AI-Safe Plugin uninstall complete."
         Write-Host "Removed install directory: $InstallDir"
     }
     else {
@@ -116,7 +116,7 @@ function Uninstall-Veil {
 # ── Auto-execute when run directly (not dot-sourced) ──
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File uninstall.ps1
-#   Or: irm https://github.com/Maya-Data-Privacy/Veil/releases/latest/download/uninstall.ps1 | iex
+#   Or: irm https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/uninstall.ps1 | iex
 if ($MyInvocation.InvocationName -ne '.') {
     $installDir = $null
     for ($i = 0; $i -lt $args.Count; $i++) {
@@ -128,5 +128,5 @@ if ($MyInvocation.InvocationName -ne '.') {
 
     $params = @{}
     if (-not [string]::IsNullOrWhiteSpace($installDir)) { $params.InstallDir = $installDir }
-    Uninstall-Veil @params
+    Uninstall-AiSafePlugin @params
 }

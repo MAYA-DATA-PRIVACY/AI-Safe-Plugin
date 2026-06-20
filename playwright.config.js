@@ -1,4 +1,4 @@
-// playwright.config.js — Veil extension E2E test configuration (CommonJS)
+// playwright.config.js — AI-Safe Plugin extension E2E test configuration (CommonJS)
 // @ts-check
 const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');

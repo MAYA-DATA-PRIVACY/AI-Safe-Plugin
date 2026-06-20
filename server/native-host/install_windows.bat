@@ -16,7 +16,7 @@ pushd "%REPO_DIR%"
 set "REPO_DIR=%CD%"
 popd
 
-set "HOST_NAME=com.veil.gliner.server"
+set "HOST_NAME=com.ai_safe_plugin.gliner.server"
 set "LEGACY_HOST_NAME=com.privacyshield.gliner2"
 set "HOST_SCRIPT=%REPO_DIR%\server\native_host.py"
 set "LAUNCHER=%REPO_DIR%\server\native-host\native_host_win.bat"
@@ -26,8 +26,8 @@ set "VENV_PYTHON=%REPO_DIR%\.venv\Scripts\python.exe"
 set "RUNTIME_DIR=%REPO_DIR%\.runtime"
 
 if not exist "%VENV_PYTHON%" (
-    echo ERROR: Veil managed runtime not found at %VENV_PYTHON%
-    echo Run the Veil installer first so uv can provision the local runtime.
+    echo ERROR: AI-Safe Plugin managed runtime not found at %VENV_PYTHON%
+    echo Run the AI-Safe Plugin installer first so uv can provision the local runtime.
     exit /b 1
 )
 
@@ -51,7 +51,7 @@ set "LAUNCHER_JSON=%LAUNCHER:\=\\%"
 (
 echo {
 echo   "name": "%HOST_NAME%",
-echo   "description": "Veil GLiNER Server Native Host",
+echo   "description": "AI-Safe Plugin GLiNER Server Native Host",
 echo   "path": "%LAUNCHER_JSON%",
 echo   "type": "stdio",
 echo   "allowed_origins": [
@@ -93,10 +93,10 @@ if errorlevel 1 (
 set "AUTOSTART_SCRIPT=%REPO_DIR%\server\autostart\install_windows.bat"
 if exist "%AUTOSTART_SCRIPT%" (
     echo.
-    echo Setting up Veil autostart...
+    echo Setting up AI-Safe Plugin autostart...
     call "%AUTOSTART_SCRIPT%"
 )
 
 echo.
-echo Veil setup complete.
+echo AI-Safe Plugin setup complete.
 endlocal

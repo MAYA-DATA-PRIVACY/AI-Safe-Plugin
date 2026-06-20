@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Veil</title>
+  <title>AI-Safe Plugin</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <div class="shell">
 
     <!-- ══════════ Onboarding Wizard Overlay ══════════ -->
-    <div id="onboardingOverlay" class="onboarding-overlay" hidden aria-modal="true" role="dialog" aria-label="Welcome to Veil">
+    <div id="onboardingOverlay" class="onboarding-overlay" hidden aria-modal="true" role="dialog" aria-label="Welcome to AI-Safe Plugin">
       <div class="onboarding-card">
 
         <div class="onboarding-dots" aria-hidden="true">
@@ -22,10 +22,10 @@
 
         <div class="onboarding-step" data-step="0">
           <div class="onboarding-icon" aria-hidden="true">
-            <img src="assets/icons/veil-icon.svg" alt="Veil" class="onboarding-logo-img">
+            <img src="assets/icons/ai-safe-plugin-icon.svg" alt="AI-Safe Plugin" class="onboarding-logo-img">
           </div>
-          <h2 class="onboarding-title">Welcome to Veil</h2>
-          <p class="onboarding-body">Veil detects and redacts personal data <strong>before it leaves your browser</strong> — powered by a local AI model, with no cloud calls unless you enable Maya anonymisation.</p>
+          <h2 class="onboarding-title">Welcome to AI-Safe Plugin</h2>
+          <p class="onboarding-body">AI-Safe Plugin detects and redacts personal data <strong>before it leaves your browser</strong> — powered by a local AI model, with no cloud calls unless you enable Maya anonymisation.</p>
           <ul class="onboarding-bullets">
             <li>Local detection by default — optional Maya anonymisation only when you enable it</li>
             <li>GLiNER2 zero-shot NER for names, emails, SSNs and more</li>
@@ -40,7 +40,7 @@
         <div class="onboarding-step" data-step="1" hidden>
           <div class="onboarding-step-badge">Step 1 of 2</div>
           <h2 class="onboarding-title">Install the Native Bridge</h2>
-          <p class="onboarding-body">Run this command once. It installs Veil's local server bundle and registers the native bridge so the extension can control it.</p>
+          <p class="onboarding-body">Run this command once. It installs AI-Safe Plugin's local server bundle and registers the native bridge so the extension can control it.</p>
           <div class="onboarding-cmd-block">
             <div class="onboarding-cmd-header">
               <span>Run in terminal</span>
@@ -69,7 +69,7 @@
         <div class="onboarding-step" data-step="3" hidden>
           <div class="onboarding-done-icon" aria-hidden="true">✓</div>
           <h2 class="onboarding-title">You're protected!</h2>
-          <p class="onboarding-body">Veil is now active. Open any AI chat site and start typing — PII will be detected and redacted automatically.</p>
+          <p class="onboarding-body">AI-Safe Plugin is now active. Open any AI chat site and start typing — PII will be detected and redacted automatically.</p>
           <div class="onboarding-actions">
             <button id="onboardingDoneBtn" type="button" class="onboarding-primary-btn">Open Dashboard</button>
           </div>
@@ -82,8 +82,8 @@
     <!-- ─── HEADER: dark, logo + live status ─── -->
     <header class="header">
       <div class="brand">
-        <img src="assets/icons/veil-icon.svg" class="brand-logo-img" alt="Veil" width="22" height="22" style="border-radius:5px">
-        <span class="brand-name">Veil</span>
+        <img src="assets/icons/ai-safe-plugin-icon.svg" class="brand-logo-img" alt="AI-Safe Plugin" width="22" height="22" style="border-radius:5px">
+        <span class="brand-name">AI-Safe Plugin</span>
         <span class="beta-badge">Beta</span>
       </div>
       <div class="header-status">
@@ -183,7 +183,7 @@
         </svg>
         Settings
       </button>
-      <a href="https://github.com/Maya-data-privacy/veil" target="_blank" rel="noreferrer" class="btn-github">
+      <a href="https://github.com/Maya-Data-Privacy/AI-Safe-Plugin" target="_blank" rel="noreferrer" class="btn-github">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
         </svg>
@@ -211,7 +211,7 @@
         <div class="opt-card opt-update-notice" id="releaseNoticeCard" hidden>
           <div class="opt-update-notice-copy">
             <div class="opt-update-notice-badge" id="releaseNoticeBadge">Update available</div>
-            <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer Veil extension release is ready.</div>
+            <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer AI-Safe Plugin extension release is ready.</div>
             <p class="opt-update-notice-body" id="releaseNoticeBody">Install or reload the latest extension build, then refresh the local server bundle below so both stay in sync.</p>
           </div>
           <a id="releaseNoticeLink" href="#" target="_blank" rel="noreferrer" class="opt-update-notice-link">Open release</a>
@@ -273,7 +273,7 @@
         <div id="apiKeyPanel" class="tool-panel" hidden>
           <section class="server-tool-panel token-tools">
             <p class="panel-title">Anonymization API Key</p>
-            <p class="hint" style="margin-top:4px">Required for Anonymize mode. Stored locally and used only for Maya anonymization through Veil&apos;s local proxy. Enterprise LLMs receive only the resulting safe text.</p>
+            <p class="hint" style="margin-top:4px">Required for Anonymize mode. Stored locally and used only for Maya anonymization through AI-Safe Plugin&apos;s local proxy. Enterprise LLMs receive only the resulting safe text.</p>
             <div id="apiKeySavedState" hidden>
               <div class="api-key-saved-card">
                 <div class="api-key-saved-info">
@@ -290,9 +290,9 @@
               </div>
             </div>
             <div id="apiKeyInputState">
-              <label class="field field-tight" for="veilApiKeyInput">
+              <label class="field field-tight" for="aiSafePluginApiKeyInput">
                 <div class="secret-input-row">
-                  <input id="veilApiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key...">
+                  <input id="aiSafePluginApiKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your API key...">
                   <button type="button" class="ghost compact eye-btn" id="toggleApiKeyVisibility" aria-label="Show/hide key" title="Show/hide">
                     <svg class="eye-icon" viewBox="0 0 20 20" fill="none"><path d="M2.5 10C4.5 6.5 7 5 10 5s5.5 1.5 7.5 5c-2 3.5-4.5 5-7.5 5s-5.5-1.5-7.5-5z" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5"/></svg>
                   </button>
@@ -308,7 +308,7 @@
         <div id="diagnosticsPanel" class="tool-panel" hidden>
           <section class="server-tool-panel">
             <p class="panel-title">Diagnostics</p>
-            <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect Veil&apos;s local runtime and do not change what gets sent to enterprise LLMs.</p>
+            <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect AI-Safe Plugin&apos;s local runtime and do not change what gets sent to enterprise LLMs.</p>
             <label class="field field-tight" style="margin-bottom:8px">
               <span style="font-size:11px;font-weight:600;color:var(--ink)">GLiNER2 Model</span>
               <select id="modelSelect">
@@ -435,7 +435,7 @@
       <details class="card advanced">
         <summary>Advanced</summary>
         <div class="advanced-body">
-          <p class="hint">Customize which websites and input fields Veil monitors.</p>
+          <p class="hint">Customize which websites and input fields AI-Safe Plugin monitors.</p>
           <label class="field">
             <span>Scoped Websites (one per line)</span>
             <textarea id="monitoredSitesInput" rows="4" spellcheck="false" placeholder="claude.ai&#10;chatgpt.com&#10;gemini.google.com"></textarea>
@@ -473,7 +473,7 @@
       <footer class="footer">
         <button id="resetButton" type="button" class="secondary">Reset</button>
         <div class="links">
-          <a href="https://github.com/Maya-data-privacy/veil" target="_blank" rel="noreferrer">
+          <a href="https://github.com/Maya-Data-Privacy/AI-Safe-Plugin" target="_blank" rel="noreferrer">
             <svg class="github-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
