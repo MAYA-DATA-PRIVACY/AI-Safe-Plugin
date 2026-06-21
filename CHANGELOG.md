@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - 2026-06-21
 
+### Changed (Windows)
+
+- Windows installer wizard now displays Maya-branded purple artwork generated at build time instead of stale placeholder BMPs, and the Windows UX fixes from this release (hidden autostart console window, metadata self-healing, cached popup status, enlarged in-field badge, themed/deduplicated offline toast) are included in this re-release.
+
 ### Security
 
 - The local server now requires a per-machine shared token on its detection endpoints (`/detect`, `/classify`, `/structure`, `/anonymize`). The server generates the token on startup and stores it with restricted permissions; the extension fetches it through the native messaging host and sends it as `X-AI-Safe-Plugin-Token`, so other local processes and localhost web pages can no longer drive detection. `/health` stays open and reports `authRequired`; auth can be disabled with `--no-auth` / `AI_SAFE_PLUGIN_NO_AUTH=1`.

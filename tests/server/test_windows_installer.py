@@ -34,7 +34,9 @@ def test_install_ai_safe_plugin_starts_the_server_now_and_treats_autostart_as_a_
 
     assert "function Start-AiSafePluginServerNow" in script
     assert "function Test-AiSafePluginServerProcessStarting" in script
-    assert 'Start-Process -FilePath $venvPython -ArgumentList @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765")' in script
+    assert 'FilePath         = $serverPython' in script
+    assert 'ArgumentList     = @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765")' in script
+    assert 'Start-Process @startArgs | Out-Null' in script
     assert 'if (Test-AiSafePluginServerProcessStarting -InstallDir $InstallDir)' in script
     assert 'Write-Host "AI-Safe Plugin server is still loading GLiNER2 for the current session."' in script
     assert 'Write-Host "Warning: AI-Safe Plugin install completed, but autostart could not be registered.' in script

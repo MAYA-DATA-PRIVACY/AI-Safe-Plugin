@@ -9,8 +9,10 @@ AI-Safe Plugin install directory.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import re
 import signal
 import socket
 import struct
@@ -39,6 +41,7 @@ VENV_DIR = REPO_DIR / ".venv"
 VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 PYPROJECT_FILE = REPO_DIR / "pyproject.toml"
 UV_LOCK_FILE = REPO_DIR / "uv.lock"
+REPO_SLUG = "Maya-Data-Privacy/AI-Safe-Plugin"
 
 RUNTIME_DIR = REPO_DIR / ".runtime"
 STATE_DIR = RUNTIME_DIR
@@ -206,20 +209,51 @@ def clear_process_state() -> None:
         pass
 
 
+def read_package_version() -> str:
+    """Read the project version from the bundled pyproject.toml (regex, no toml dep)."""
+    try:
+        text = PYPROJECT_FILE.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    match = re.search(r'(?m)^\s*version\s*=\s*"([^"]+)"', text)
+    return match.group(1).strip() if match else ""
+
+
 def read_bundle_release_info() -> Dict[str, Any]:
     ensure_runtime_dirs()
-    defaults = {
-        "bundleReleaseTag": None,
-        "bundleReleasePublishedAt": None,
-        "bundleReleaseUrl": None,
-        "bundleReleaseInstalledAt": None,
-    }
-    if not RELEASE_INFO_FILE.exists():
-        return defaults
-    try:
-        payload = json.loads(RELEASE_INFO_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return defaults
+    payload: Dict[str, Any] = {}
+    if RELEASE_INFO_FILE.exists():
+        try:
+            payload = json.loads(RELEASE_INFO_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            payload = {}
+
+    tag = str(payload.get("tag") or "").strip()
+    if not tag:
+        # Self-heal: an install running this code should always be able to report its
+        # own version. If the installer never wrote (or wrote an empty) tag — e.g. a
+        # dev/partial install — derive it from the bundled version and stamp the file
+        # so the extension stops nagging to re-run the installer.
+        version = read_package_version()
+        if version:
+            tag = f"v{version}"
+            payload = {
+                "tag": tag,
+                "published_at": str(payload.get("published_at") or "").strip(),
+                "html_url": str(payload.get("html_url") or "").strip()
+                or f"https://github.com/{REPO_SLUG}/releases/tag/{tag}",
+                "repository": str(payload.get("repository") or "").strip() or REPO_SLUG,
+                "installed_at": str(payload.get("installed_at") or "").strip()
+                or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "self_stamped": True,
+            }
+            try:
+                RELEASE_INFO_FILE.write_text(
+                    json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+                )
+            except Exception:
+                pass
+
     return {
         "bundleReleaseTag": str(payload.get("tag") or "").strip() or None,
         "bundleReleasePublishedAt": str(payload.get("published_at") or "").strip() or None,

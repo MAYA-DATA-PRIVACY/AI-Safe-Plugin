@@ -250,7 +250,11 @@ function Start-AiSafePluginServerNow {
     )
 
     $venvPython = Join-Path $InstallDir ".venv\Scripts\python.exe"
+    $venvPythonw = Join-Path $InstallDir ".venv\Scripts\pythonw.exe"
+    # Prefer pythonw.exe so no console window appears for the immediate start.
+    $serverPython = if (Test-Path -LiteralPath $venvPythonw) { $venvPythonw } else { $venvPython }
     $serverScript = Join-Path $InstallDir "server\gliner2_server.py"
+    $serverLog = Join-Path $InstallDir ".runtime\gliner2_server.log"
 
     if (Test-AiSafePluginServerHealthy) {
         Write-Host "AI-Safe Plugin server already healthy; skipping immediate start."
@@ -279,7 +283,20 @@ function Start-AiSafePluginServerNow {
     $env:XDG_CACHE_HOME = Join-Path $InstallDir ".runtime\cache\xdg"
 
     try {
-        Start-Process -FilePath $venvPython -ArgumentList @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765") -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
+        $startArgs = @{
+            FilePath         = $serverPython
+            ArgumentList     = @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765")
+            WorkingDirectory = $InstallDir
+            WindowStyle      = "Hidden"
+        }
+        # Capture server stdout to the runtime log so "Show Logs" works for this session too.
+        try {
+            $startArgs.RedirectStandardOutput = $serverLog
+        }
+        catch {
+            # If the log path can't be used for redirection, start without it.
+        }
+        Start-Process @startArgs | Out-Null
     }
     catch {
         Write-Host "Warning: AI-Safe Plugin installed successfully, but the server could not be started immediately."
@@ -448,6 +465,22 @@ function Write-AiSafePluginReleaseMetadata {
         catch {
             # Fall back to an unknown-but-valid payload so local installs remain verifiable.
         }
+    }
+
+    # Self-heal: if no tag came from the source, derive it from the bundled version so the
+    # extension can verify the install instead of nagging to re-run the installer.
+    if ([string]::IsNullOrWhiteSpace($releaseMeta.tag)) {
+        $installRoot = Split-Path -Parent (Split-Path -Parent $TargetPath)
+        $pyproject = Join-Path $installRoot "pyproject.toml"
+        if (Test-Path -LiteralPath $pyproject) {
+            $match = [regex]::Match((Get-Content -LiteralPath $pyproject -Raw), '(?m)^\s*version\s*=\s*"([^"]+)"')
+            if ($match.Success) {
+                $releaseMeta.tag = "v" + $match.Groups[1].Value.Trim()
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($releaseMeta.tag) -and [string]::IsNullOrWhiteSpace($releaseMeta.html_url)) {
+        $releaseMeta.html_url = "https://github.com/$RepoSlug/releases/tag/$($releaseMeta.tag)"
     }
 
     $releaseMeta | ConvertTo-Json | Set-Content -LiteralPath $TargetPath -Encoding UTF8

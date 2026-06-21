@@ -148,8 +148,8 @@
 
 /* Maya atom mark inside the badge — white on the purple disc via currentColor */
 .ps-badge-img {
-  width: 20px;
-  height: 20px;
+  width: 27px;
+  height: 27px;
   flex-shrink: 0;
   pointer-events: none;
   color: #FFFFFF;
@@ -233,8 +233,8 @@
 
 /* SVG monogram inside badge */
 .ps-badge-svg {
-  width: 20px;
-  height: 20px;
+  width: 27px;
+  height: 27px;
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -876,9 +876,10 @@
 }
 
 .ps-notification-warning {
-  background: linear-gradient(180deg, #fefce8 0%, #fef3c7 100%);
-  border-color: #e9d36e;
-  color: #713f12;
+  background: linear-gradient(180deg, #FBF8FE 0%, #EFE8FB 100%);
+  border-color: #C9BCEC;
+  border-left: 3px solid #6750A4;
+  color: #3F3266;
 }
 
 .ps-notification-error {
