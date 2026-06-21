@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Releases now publish a `SHA256SUMS` file, and both installers verify downloaded assets against it: a backend-bundle mismatch aborts the install, a model mismatch falls back to the Hugging Face download, and a missing `SHA256SUMS` (older releases) warns and continues.
 - The local server no longer writes anonymisation response bodies to its logs. Anonymisation logging is now metadata-only by default (counts, status codes, and body sizes), so raw values returned by the Maya endpoint never reach the logs. Verbose logging can be restored for debugging by setting `AI_SAFE_PLUGIN_DEBUG_ANON_LOGS=1`.
 
+### Changed
+
+- Refreshed the popup and settings UI: the toolbar/settings pages now use the high-resolution Maya mark (crisp white on the purple header, on a purple brand chip on light backgrounds) instead of the old low-contrast icon, and ship the Inter font for a consistent, professional look across devices. The browser toolbar action icons were regenerated to the white Maya atom on a purple rounded tile.
+- Tidied the popup header layout: the brand name now stays on a single line, the live "Active (Local)" status moved into the stats/hero area, and the Beta badge and version moved down into the footer.
+
 ### Added
 
 - Non-sensitive settings now sync across your devices via Chrome sync: protection toggle, sensitivity, redaction mode, auto-redact, enabled types, custom patterns and detectors, and monitored/excluded sites and selectors. Secrets (Maya API key, anonymisation seed, server token), per-site ledgers, caches, local stats, and per-site snoozes are never synced and stay on the device. Local remains the source of truth; a newer copy from another device is applied on startup and live.

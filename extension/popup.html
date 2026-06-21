@@ -83,19 +83,8 @@
     <!-- ─── HEADER: dark, logo + live status ─── -->
     <header class="header">
       <div class="brand">
-        <img src="assets/icons/ai-safe-plugin-icon.svg" class="brand-logo-img" alt="AI-Safe Plugin" width="22" height="22" style="border-radius:5px">
+        <img src="assets/maya/maya-mark.png" class="brand-logo-img" alt="AI-Safe Plugin" width="30" height="30">
         <span class="brand-name">AI-Safe Plugin</span>
-        <span class="beta-badge">Beta</span>
-      </div>
-      <div class="header-status">
-        <span class="status-dot" id="statusDot"></span>
-        <span class="status-text" id="statusText">Checking…</span>
-        <span class="version-wrap">
-          <svg class="git-logo" viewBox="0 0 92 92" fill="#F05032" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-            <path d="M90.16 41.88L50.12 1.84a6.29 6.29 0 00-8.9 0l-8.86 8.86 11.24 11.24a7.47 7.47 0 019.46 9.53l10.83 10.83a7.47 7.47 0 11-4.47 4.23L48.29 35.39v27.59a7.48 7.48 0 11-6.15.19V34.82a7.47 7.47 0 01-4.06-9.82L26.9 13.86 1.84 38.92a6.29 6.29 0 000 8.9l40.04 40.04a6.29 6.29 0 008.9 0l39.38-39.38a6.29 6.29 0 000-8.9z"/>
-          </svg>
-          <span class="version-badge" id="versionBadge">v1.1</span>
-        </span>
       </div>
     </header>
 
@@ -113,6 +102,10 @@
 
     <!-- ─── HERO: big stat + sub-info ─── -->
     <div class="hero">
+      <div class="hero-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Checking…</span>
+      </div>
       <div class="hero-count">
         <span id="redactionCount" class="hero-number">0</span>
         <span class="hero-unit">items protected</span>
@@ -194,8 +187,19 @@
 
     <!-- ─── MAYA BRANDING FOOTER ─── -->
     <div class="maya-footer popup-only">
-      <img src="assets/maya/logo.svg" alt="Maya Data Privacy" class="maya-logo" data-hide-on-error>
-      <span class="maya-tagline">An open-source privacy extension by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a></span>
+      <div class="maya-footer-brand">
+        <img src="assets/maya/logo.svg" alt="Maya Data Privacy" class="maya-logo" data-hide-on-error>
+        <span class="maya-tagline">An open-source privacy extension by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a></span>
+      </div>
+      <div class="maya-footer-meta">
+        <span class="beta-badge">Beta</span>
+        <span class="version-wrap">
+          <svg class="git-logo" width="13" height="13" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          <span class="version-badge" id="versionBadge">v1.2.8</span>
+        </span>
+      </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════ -->

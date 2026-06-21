@@ -67,7 +67,7 @@
   --md-elev-3: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.3);
 
   /* ── Typography ── */
-  --md-font: "Roboto", "Google Sans", system-ui, sans-serif;
+  --md-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --md-font-mono: "Roboto Mono", "JetBrains Mono", "SF Mono", monospace;
   --opt-section-scroll-offset: 112px;
 }
@@ -136,11 +136,15 @@ html, body {
 
 .opt-brand-logo,
 .opt-brand-logo-img {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
-  border-radius: var(--md-shape-sm);
+  padding: 6px;
+  border-radius: 10px;
   object-fit: contain;
+  /* White Maya atom needs a coloured backing on the light sidebar. */
+  background: linear-gradient(145deg, #7B61C4, #6750A4);
+  box-shadow: 0 2px 6px rgba(103, 80, 164, 0.30);
 }
 
 .opt-brand-text {
@@ -149,12 +153,11 @@ html, body {
   gap: 2px;
 }
 
-/* M3 Title Large */
 .opt-brand-name {
-  font-size: 22px;
-  font-weight: 400;
-  line-height: 28px;
-  letter-spacing: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: -0.01em;
   color: var(--md-on-surface);
 }
 

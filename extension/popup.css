@@ -1,4 +1,10 @@
+/* ── Bundled UI font (Inter) — used across popup, options, and playground ── */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('assets/fonts/Inter-Regular.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('assets/fonts/Inter-SemiBold.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('assets/fonts/Inter-Bold.woff2') format('woff2'); }
+
 :root {
+  --ui-font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --bg: #f4efe6;
   --surface: #fffdf8;
   --surface-2: #faf6ee;
@@ -38,7 +44,7 @@ body {
   clip-path: inset(0 round 14px);
   color: var(--text);
   background: transparent;
-  font: 13px/1.45 "Avenir Next", "Manrope", "Segoe UI Variable", sans-serif;
+  font: 13px/1.45 var(--ui-font);
 }
 
 .shell {
@@ -1363,7 +1369,7 @@ body {
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   background: #6750A4;
   color: #FFFFFF;
   padding: 14px 16px 13px;
@@ -1385,11 +1391,12 @@ body {
 }
 
 .brand-name {
-  font-family: "Roboto", "Inter", "Google Sans", system-ui, sans-serif;
+  font-family: var(--ui-font);
   font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: #FFFFFF;
+  white-space: nowrap;
 }
 
 .header-status {
@@ -1441,14 +1448,20 @@ body {
   opacity: 1;
 }
 
-/* Brand logo as img (Maya logo replaces shield SVG) */
+/* Brand mark on the purple header: white Maya atom in a subtle frosted disc so it
+   reads as an intentional chip instead of merging into the background. */
 .brand-logo-img {
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   object-fit: contain;
   flex-shrink: 0;
+  padding: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
+/* (.opt-brand-logo-img chip is defined in options.css, which loads after this.) */
 .opt-brand-logo-img {
   width: 28px;
   height: 28px;
@@ -1522,9 +1535,47 @@ a.maya-link:hover { text-decoration: underline; }
 /* ─── Hero: M3 Surface Container ─── */
 .hero {
   background: #F3EDF7;
-  padding: 14px 20px 12px;
+  padding: 12px 20px 12px;
   text-align: center;
   border-bottom: 1px solid #CAC4D0;
+}
+
+/* Live status pill in the hero/counts area (light surface) */
+.hero-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  background: #FFFBFE;
+  border: 1px solid #CAC4D0;
+}
+
+.hero-status .status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #B0AAB8;
+}
+
+.hero-status .status-text {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #49454F;
+  white-space: nowrap;
+}
+
+.hero-status .status-dot.active {
+  background: #2E7D49;
+  box-shadow: 0 0 0 3px rgba(46,125,73,0.18);
+}
+
+.hero-status .status-dot.warn {
+  background: #C9821B;
+  box-shadow: 0 0 0 3px rgba(201,130,27,0.18);
 }
 
 .hero-count {
@@ -1964,12 +2015,42 @@ a.maya-link:hover { text-decoration: underline; }
 /* ─── Maya Data Privacy branding footer ─── */
 .maya-footer {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px 11px;
+  background: #F3EDF7;
+  border-top: 1px solid #CAC4D0;
+}
+
+.maya-footer-brand {
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 8px 12px 10px;
-  background: #F3EDF7;
-  border-top: 1px solid #CAC4D0;
+}
+
+.maya-footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.maya-footer-meta .version-badge {
+  background: #FFFBFE;
+  border: 1px solid #CAC4D0;
+  color: #79747E;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.maya-footer-meta .git-logo {
+  color: #79747E;
+  opacity: 0.8;
 }
 
 .maya-logo {
