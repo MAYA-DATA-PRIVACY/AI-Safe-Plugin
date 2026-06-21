@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed the in-page field badge to the Maya atom mark on a brand-purple disc with a white halo so it stays clearly visible on any website background, plus a gentle resting animation; it still turns amber with a count when items need attention and green with a check when protected. The atom is drawn inline (bolder strokes) so it stays legible at the small badge size, and the onboarding welcome icon now uses the white Maya mark.
 - Improved the beta banner's contrast (deeper background, brighter text) and shrank its dismiss button, and fixed the playground page card so it is horizontally centered again.
 - Enlarged the in-field corner badge slightly (easier to see and click) and fixed the redaction panel's per-item action buttons rendering as oversized purple pills on the playground — the settings page's global button styling is now scoped to the settings and playground containers so it no longer leaks onto the injected in-page panel.
+- Re-themed the in-page UI (field panel, popover, token chips, toast notifications) from the old warm cream/brown palette to the purple Material-You theme used across the rest of the extension, so the injected surfaces match the brand. Semantic colours — risk-tier badges, error/warning toasts, and per-category detection colours — are unchanged.
 
 ### Added
 
