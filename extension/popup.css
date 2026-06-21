@@ -1033,9 +1033,9 @@ body:not(.full-page).onboarding-open .onboarding-card {
 }
 
 .onboarding-logo-img {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
   display: block;
 }
 
@@ -1372,9 +1372,9 @@ body {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 5px 30px 5px 12px;
+  padding: 5px 26px 5px 12px;
   position: relative;
-  background: linear-gradient(135deg, #7B61C4, #6750A4);
+  background: linear-gradient(135deg, #5E45A8, #4D3791);
   color: #FFFFFF;
   font-family: var(--ui-font);
   font-size: 11px;
@@ -1388,13 +1388,17 @@ body {
 
 .beta-banner-spark {
   font-size: 11px;
-  opacity: 0.9;
+  color: #FFD479;
   flex-shrink: 0;
 }
 
+.beta-banner-text {
+  color: #FFFFFF;
+}
+
 .beta-banner-text strong {
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -1406,21 +1410,21 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   padding: 0;
   border: none;
   border-radius: 50%;
   background: transparent;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 9px;
   line-height: 1;
   cursor: pointer;
   transition: background 120ms ease, color 120ms ease;
 }
 
 .beta-banner-close:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.20);
   color: #FFFFFF;
 }
 

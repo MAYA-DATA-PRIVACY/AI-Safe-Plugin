@@ -94,8 +94,10 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Stack the beta banner above the sidebar+main row without overflowing the viewport. */
-body {
+/* Stack the beta banner above the sidebar+main row without overflowing the viewport.
+   Scoped to the settings page so it doesn't leak into playground.html (which also
+   loads options.css and centers its card with its own inline body flex). */
+body.opt-page {
   display: flex;
   flex-direction: column;
 }

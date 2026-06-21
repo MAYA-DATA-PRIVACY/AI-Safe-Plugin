@@ -145,13 +145,13 @@
   user-select: none;
 }
 
-/* Maya atom mark inside the badge */
+/* Maya atom mark inside the badge — white on the purple disc via currentColor */
 .ps-badge-img {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
+  width: 17px;
+  height: 17px;
   flex-shrink: 0;
   pointer-events: none;
+  color: #FFFFFF;
 }
 
 .ps-field-badge.ps-badge-visible {
@@ -232,8 +232,8 @@
 
 /* SVG monogram inside badge */
 .ps-badge-svg {
-  width: 14px;
-  height: 14px;
+  width: 17px;
+  height: 17px;
   flex-shrink: 0;
   pointer-events: none;
 }

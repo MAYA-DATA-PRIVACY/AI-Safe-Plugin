@@ -1194,6 +1194,42 @@ class AiSafePluginContentController {
   // Field Status Badge
   // ═══════════════════════════════════════════════════════════
 
+  // Bold, simplified Maya atom drawn inline so it stays legible at the small
+  // badge size (the detailed white PNG mark vanishes below ~24px). White via
+  // currentColor on the purple disc.
+  _buildBadgeAtom() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '24');
+    svg.setAttribute('height', '24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'ps-badge-svg ps-badge-img');
+
+    [0, 60, 120].forEach((deg) => {
+      const ellipse = document.createElementNS(ns, 'ellipse');
+      ellipse.setAttribute('cx', '12');
+      ellipse.setAttribute('cy', '12');
+      ellipse.setAttribute('rx', '9.5');
+      ellipse.setAttribute('ry', '3.6');
+      ellipse.setAttribute('fill', 'none');
+      ellipse.setAttribute('stroke', 'currentColor');
+      ellipse.setAttribute('stroke-width', '2.2');
+      ellipse.setAttribute('transform', `rotate(${deg} 12 12)`);
+      svg.appendChild(ellipse);
+    });
+
+    const nucleus = document.createElementNS(ns, 'circle');
+    nucleus.setAttribute('cx', '12');
+    nucleus.setAttribute('cy', '12');
+    nucleus.setAttribute('r', '2.6');
+    nucleus.setAttribute('fill', 'currentColor');
+    svg.appendChild(nucleus);
+
+    return svg;
+  }
+
   _buildCheckSvg() {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -1225,11 +1261,7 @@ class AiSafePluginContentController {
       badge.tabIndex = 0;
       badge.setAttribute('aria-label', 'AI-Safe Plugin');
 
-      const mark = document.createElement('img');
-      mark.className = 'ps-badge-svg ps-badge-img';
-      mark.setAttribute('alt', '');
-      mark.setAttribute('aria-hidden', 'true');
-      mark.src = chrome.runtime.getURL('assets/maya/maya-mark.png');
+      const mark = this._buildBadgeAtom();
       badge.appendChild(mark);
 
       const checkSvg = this._buildCheckSvg();
