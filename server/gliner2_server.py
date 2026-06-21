@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Local GLiNER2 inference bridge for the Veil extension.
+Local GLiNER2 inference bridge for the AI-Safe Plugin extension.
 
 The service binds to localhost by default and never forwards prompt text to any
 external API except optional anonymization proxy requests made to a configured
@@ -9,8 +9,10 @@ endpoint from local `.env`.
 
 import argparse
 import atexit
+import hmac
 import json
 import os
+import secrets
 import socket
 import sys
 import threading
@@ -48,6 +50,7 @@ DEFAULT_ONNX_PRECISION = "fp16"
 DEFAULT_ONNX_PROVIDERS = ["CPUExecutionProvider"]
 DEFAULT_THRESHOLD = 0.42
 DEFAULT_MAX_CHARS = 9000
+DEFAULT_MAX_BODY_BYTES = 1024 * 1024
 DEFAULT_LABELS = {
     "person":        "full name, first name, last name, or nickname of a real human individual",
     "email":         "electronic mail address containing @ and a domain like user@example.com",
@@ -68,11 +71,23 @@ DEFAULT_THRESHOLDS_BY_TYPE = {
 
 PII_STRUCTURE_SCHEMA = {
     "persons":   "names of people — first names, last names, full names",
+    "organizations": "company names, institutions, government agencies, or business entities",
     "emails":    "email addresses in format user@domain.com",
     "phones":    "phone numbers or mobile numbers",
     "ids":       "identity numbers such as SSN, passport number, national ID",
     "financial": "credit card numbers or bank account details",
     "locations": "addresses, cities, countries, states, geographic places",
+}
+LABEL_TO_STRUCTURE_KEY = {
+    "person": "persons",
+    "organization": "organizations",
+    "email": "emails",
+    "phone": "phones",
+    "ssn": "ids",
+    "credit_card": "financial",
+    "address": "locations",
+    "location": "locations",
+    "date_of_birth": "ids",
 }
 
 # Server-side chunking: GLiNER2's context window is ~512 tokens; 480 chars is a
@@ -84,13 +99,21 @@ ENV_FILE = REPO_DIR / ".env"
 RUNTIME_DIR = REPO_DIR / ".runtime"
 PROCESS_LOCK_FILE = RUNTIME_DIR / "server_process.lock"
 PROCESS_STATE_FILE = RUNTIME_DIR / "server_process.json"
+SERVER_TOKEN_FILE = RUNTIME_DIR / "server_token"
 ANON_ENDPOINT_ENV_KEY = "MDP_ANONYMIZATION_ENDPOINT"
 DEFAULT_ANONYMIZATION_ENDPOINT = "https://app.mayadataprivacy.in/mdp/engine/anonymization"
 ANON_REQUEST_TIMEOUT_SEC = 10.0
+# When set to "1", restore verbose anonymization logging (full upstream response and
+# body previews) for debugging. Off by default so raw PII never reaches the logs.
+DEBUG_ANON_LOGS = os.environ.get("AI_SAFE_PLUGIN_DEBUG_ANON_LOGS", "") == "1"
 PROCESS_SESSION_ID = uuid.uuid4().hex[:10]
 PROCESS_LOCK_HANDLE = None
 
 load_dotenv(ENV_FILE, override=False)
+
+
+class RequestBodyTooLarge(ValueError):
+    """Raised before reading request bodies that exceed the local API cap."""
 
 if os.name == "nt":
     import msvcrt
@@ -169,6 +192,38 @@ def resolve_anonymization_endpoint() -> str:
 
 def ensure_runtime_dir() -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_or_create_token() -> str:
+    """Return the shared server token, generating and persisting one if absent.
+
+    The token gates the detection endpoints so that only the AI-Safe Plugin extension (which
+    fetches it through the native messaging host) can call them. It is stored in
+    RUNTIME_DIR with 0600 permissions on POSIX; an existing valid token is reused so
+    that server restarts do not invalidate already-configured clients.
+    """
+    ensure_runtime_dir()
+    try:
+        existing = SERVER_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+
+    token = secrets.token_hex(32)
+    try:
+        # Create with restrictive permissions from the start on POSIX.
+        fd = os.open(str(SERVER_TOKEN_FILE), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, token.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except Exception:
+        # Fallback (e.g. Windows, where mode bits are ignored): plain write.
+        SERVER_TOKEN_FILE.write_text(token, encoding="utf-8")
+    return token
 
 
 def load_process_state() -> Dict[str, Any]:
@@ -294,6 +349,25 @@ def log_anonymization(event: str, request_id: str, **fields: Any) -> None:
     print(f"[anonymize] {compact_json(payload)}", flush=True)
 
 
+def scrub_upstream_detail(body: str) -> str:
+    """Return a short upstream error detail only when it is a JSON object whose
+    ``error``/``message`` field is a plain string; otherwise omit the body so raw
+    upstream content (which may contain PII) never surfaces in errors or logs."""
+    text = (body or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return "<non-json upstream error body omitted>"
+    if isinstance(parsed, dict):
+        for key in ("error", "message"):
+            value = parsed.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:320]
+    return "<non-json upstream error body omitted>"
+
+
 def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> Any:
     if not isinstance(entries, list):
         raise ValueError("entries must be a JSON array.")
@@ -341,13 +415,14 @@ def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> 
             body = exc.read().decode("utf-8", errors="replace").strip()
         except Exception:
             body = ""
-        log_anonymization(
-            "response.http_error",
-            request_id,
-            status=int(getattr(exc, "code", 0) or 0),
-            body_preview=body[:1200],
-        )
-        detail = body[:320] if body else str(exc)
+        http_error_fields = {
+            "status": int(getattr(exc, "code", 0) or 0),
+            "body_chars": len(body),
+        }
+        if DEBUG_ANON_LOGS:
+            http_error_fields["body_preview"] = body[:1200]
+        log_anonymization("response.http_error", request_id, **http_error_fields)
+        detail = scrub_upstream_detail(body) or str(exc)
         raise RuntimeError(f"Upstream anonymization failed ({exc.code}): {detail}") from exc
     except urlerror.URLError as exc:
         log_anonymization("response.network_error", request_id, reason=str(exc.reason))
@@ -359,20 +434,23 @@ def proxy_anonymization(entries: List[Any], jwt_token: str, request_id: str) -> 
 
     try:
         parsed = json.loads(raw)
-        log_anonymization(
-            "response.inbound",
-            request_id,
-            status=status_code,
-            response=parsed,
-        )
+        inbound_fields = {
+            "status": status_code,
+            "response_type": type(parsed).__name__,
+            "items_count": len(parsed) if isinstance(parsed, list) else None,
+        }
+        if DEBUG_ANON_LOGS:
+            inbound_fields["response"] = parsed
+        log_anonymization("response.inbound", request_id, **inbound_fields)
         return parsed
     except json.JSONDecodeError as exc:
-        log_anonymization(
-            "response.non_json",
-            request_id,
-            status=status_code,
-            body_preview=raw[:1200],
-        )
+        non_json_fields = {
+            "status": status_code,
+            "body_chars": len(raw),
+        }
+        if DEBUG_ANON_LOGS:
+            non_json_fields["body_preview"] = raw[:1200]
+        log_anonymization("response.non_json", request_id, **non_json_fields)
         raise RuntimeError("Anonymization endpoint returned non-JSON response.") from exc
 
 
@@ -511,7 +589,7 @@ def make_chunks(text: str) -> List[Tuple[str, int]]:
         result.append((text[pos:end], pos))
         if end >= len(text):
             break
-        pos += CHUNK_SIZE - CHUNK_OVERLAP
+        pos = max(end - CHUNK_OVERLAP, pos + 1)
     return result
 
 
@@ -838,18 +916,13 @@ class GLiNERService:
         if schema is None:
             schema = PII_STRUCTURE_SCHEMA
 
-        label_to_schema_key = {
-            "person": "persons", "email": "emails", "phone": "phones",
-            "ssn": "ids", "credit_card": "financial", "address": "locations",
-            "location": "locations", "date_of_birth": "ids", "organization": "persons",
-        }
         try:
             detections = self.detect(text, DEFAULT_LABELS, 0.35)
             result: Dict[str, List[str]] = {key: [] for key in schema}
             seen: Dict[str, set] = {key: set() for key in schema}
             for det in detections:
                 lbl = str(det.get("label", "")).lower()
-                bucket = label_to_schema_key.get(lbl)
+                bucket = LABEL_TO_STRUCTURE_KEY.get(lbl)
                 if bucket and bucket in result:
                     value = str(det.get("text", "")).strip()
                     if value and value not in seen[bucket]:
@@ -860,28 +933,81 @@ class GLiNERService:
             return {"error": str(exc)}
 
 
-def make_handler(service: GLiNERService, max_chars: int):
+def make_handler(
+    service: GLiNERService,
+    max_chars: int,
+    *,
+    auth_token: Optional[str] = None,
+    allowed_host: str = "127.0.0.1",
+    extra_allowed_origins: Tuple[str, ...] = (),
+):
     class Handler(BaseHTTPRequestHandler):
-        def _allowed_origin(self) -> str:
-            """Return the request Origin if it is from a trusted local source,
-            otherwise return an empty string (request will still be served but
-            without ACAO — browsers will block the response for cross-origin JS).
-            Trusted: chrome-extension://, moz-extension://, localhost, 127.0.0.1."""
-            origin = self.headers.get("Origin", "")
-            if not origin:
-                return ""
+        # Honour a per-request socket timeout so a slow/idle client cannot pin a
+        # worker thread indefinitely (BaseHTTPRequestHandler reads this attribute).
+        timeout = 30
+
+        def _origin_header(self) -> str:
+            return str(self.headers.get("Origin", "")).strip().replace("\r", "").replace("\n", "")
+
+        def _is_allowed_origin(self, origin: str) -> bool:
+            # Only the browser extension may call the API from a page context. The
+            # shared token (auth_token) is the real gate for non-browser clients;
+            # CORS stays least-privilege. Power users can widen this via
+            # AI_SAFE_PLUGIN_EXTRA_ALLOWED_ORIGINS (exact origins).
             if (
                 origin.startswith("chrome-extension://")
                 or origin.startswith("moz-extension://")
-                or origin in ("http://localhost", "https://localhost",
-                               "http://127.0.0.1", "https://127.0.0.1")
-                or origin.startswith("http://localhost:")
-                or origin.startswith("http://127.0.0.1:")
+                or origin in extra_allowed_origins
             ):
-                # Strip any CR/LF characters to prevent HTTP response splitting
-                sanitized = origin.replace("\r", "").replace("\n", "")
-                return sanitized
+                return True
+            return False
+
+        def _is_allowed_host(self) -> bool:
+            # DNS-rebinding defence: only accept loopback names or the bound host.
+            raw = str(self.headers.get("Host", "")).strip()
+            if not raw:
+                return True
+            host = raw
+            if host.startswith("["):  # bracketed IPv6, e.g. [::1]:8765
+                host = host[1:].split("]", 1)[0]
+            elif ":" in host:
+                host = host.rsplit(":", 1)[0]
+            host = host.strip().lower()
+            return host in ("127.0.0.1", "localhost", "::1", str(allowed_host).lower())
+
+        def _reject_forbidden_host(self) -> bool:
+            if not self._is_allowed_host():
+                self._write_json({"ok": False, "error": "Forbidden host."}, status_code=403)
+                return True
+            return False
+
+        def _reject_unauthorized(self) -> bool:
+            if auth_token is None:
+                return False
+            provided = str(self.headers.get("X-AI-Safe-Plugin-Token", ""))
+            if not hmac.compare_digest(provided, auth_token):
+                self._write_json(
+                    {"ok": False, "error": "Missing or invalid AI-Safe Plugin token."},
+                    status_code=401,
+                )
+                return True
+            return False
+
+        def _allowed_origin(self) -> str:
+            """Return the sanitized trusted Origin for CORS response headers."""
+            origin = self._origin_header()
+            if not origin:
+                return ""
+            if self._is_allowed_origin(origin):
+                return origin
             return ""
+
+        def _reject_forbidden_origin(self) -> bool:
+            origin = self._origin_header()
+            if origin and not self._is_allowed_origin(origin):
+                self._write_json({"ok": False, "error": "Forbidden origin."}, status_code=403)
+                return True
+            return False
 
         def _write_json(self, payload: Any, status_code: int = 200) -> None:
             body = json.dumps(payload).encode("utf-8")
@@ -897,23 +1023,44 @@ def make_handler(service: GLiNERService, max_chars: int):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                # Browser disconnected while we were sending response.
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # Browser disconnected while we were sending the response. On Windows
+                # this surfaces as ConnectionAbortedError (WinError 10053); POSIX raises
+                # BrokenPipeError/ConnectionResetError. Treat all three the same so a
+                # mid-response disconnect never crashes the handler thread.
                 pass
 
         def _read_json(self) -> Any:
-            content_length = int(self.headers.get("Content-Length", "0"))
+            try:
+                content_length = int(self.headers.get("Content-Length", "0"))
+            except (TypeError, ValueError):
+                raise ValueError("Invalid Content-Length header.")
             if content_length <= 0:
                 return {}
-            raw = self.rfile.read(content_length).decode("utf-8")
+            if content_length > DEFAULT_MAX_BODY_BYTES:
+                raise RequestBodyTooLarge(
+                    f"Request body exceeds {DEFAULT_MAX_BODY_BYTES} byte limit."
+                )
+            try:
+                raw = self.rfile.read(content_length).decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError("Invalid UTF-8 JSON body.") from exc
             if not raw:
                 return {}
             return json.loads(raw)
 
         def do_OPTIONS(self) -> None:  # noqa: N802
+            if self._reject_forbidden_host():
+                return
+            if self._reject_forbidden_origin():
+                return
             self._write_json({}, status_code=204)
 
         def do_GET(self) -> None:  # noqa: N802
+            if self._reject_forbidden_host():
+                return
+            if self._reject_forbidden_origin():
+                return
             path = urlparse(self.path).path
             if path == "/health":
                 self._write_json(
@@ -926,12 +1073,19 @@ def make_handler(service: GLiNERService, max_chars: int):
                         "loaded": service.model is not None,
                         "anonymizationProxy": True,
                         "anonymizationEndpointConfigured": bool(resolve_anonymization_endpoint()),
+                        "authRequired": auth_token is not None,
                     }
                 )
                 return
             self._write_json({"ok": False, "error": "Not found"}, status_code=404)
 
         def do_POST(self) -> None:  # noqa: N802
+            if self._reject_forbidden_host():
+                return
+            if self._reject_forbidden_origin():
+                return
+            if self._reject_unauthorized():
+                return
             path = urlparse(self.path).path
 
             try:
@@ -1017,11 +1171,14 @@ def make_handler(service: GLiNERService, max_chars: int):
                     return
 
                 self._write_json({"ok": False, "error": "Not found"}, status_code=404)
-            except (BrokenPipeError, ConnectionResetError):
-                # Client disconnected before receiving server output.
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # Client disconnected before receiving server output. ConnectionAbortedError
+                # is the Windows (WinError 10053) variant of the POSIX broken-pipe/reset.
                 return
             except json.JSONDecodeError:
                 self._write_json({"ok": False, "error": "Invalid JSON body."}, status_code=400)
+            except RequestBodyTooLarge as exc:
+                self._write_json({"ok": False, "error": str(exc)}, status_code=413)
             except ValueError as exc:
                 self._write_json({"ok": False, "error": str(exc)}, status_code=400)
             except RuntimeError as exc:
@@ -1048,7 +1205,19 @@ def parse_args() -> argparse.Namespace:
         help="Do not load model at startup. Load only on first /detect request.",
     )
     parser.add_argument("--download-only", action="store_true", help="Download/cache model and exit")
+    parser.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="Disable shared-token auth on detection endpoints (also via AI_SAFE_PLUGIN_NO_AUTH=1).",
+    )
     return parser.parse_args()
+
+
+def resolve_extra_allowed_origins() -> Tuple[str, ...]:
+    raw = str(os.environ.get("AI_SAFE_PLUGIN_EXTRA_ALLOWED_ORIGINS", "")).strip()
+    if not raw:
+        return ()
+    return tuple(o.strip() for o in raw.split(",") if o.strip())
 
 
 def main() -> None:
@@ -1092,7 +1261,17 @@ def main() -> None:
     else:
         print("Lazy-load mode enabled: ONNX model loads on first detection request.")
 
-    handler = make_handler(service, args.max_chars)
+    auth_disabled = args.no_auth or os.environ.get("AI_SAFE_PLUGIN_NO_AUTH") == "1"
+    auth_token = None if auth_disabled else load_or_create_token()
+    if auth_token is None:
+        print("Token auth disabled (--no-auth/AI_SAFE_PLUGIN_NO_AUTH); detection endpoints are unauthenticated.")
+    handler = make_handler(
+        service,
+        args.max_chars,
+        auth_token=auth_token,
+        allowed_host=args.host,
+        extra_allowed_origins=resolve_extra_allowed_origins(),
+    )
     server = ThreadingHTTPServer((args.host, args.port), handler)
     mark_process_state(
         "running",

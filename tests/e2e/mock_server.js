@@ -45,7 +45,7 @@ function isPortBusy(port) {
 async function startMockServer({ port = DEFAULT_PORT, detections = [], loaded = true, healthy = true, pages = {}, handlers = {} } = {}) {
     const busy = await isPortBusy(port);
     if (busy) {
-        throw new Error(`[mock_server] Port ${port} is already in use. Stop the local Veil server before running E2E tests.`);
+        throw new Error(`[mock_server] Port ${port} is already in use. Stop the local AI-Safe Plugin server before running E2E tests.`);
     }
 
     return new Promise((resolve, reject) => {
@@ -122,6 +122,7 @@ async function startMockServer({ port = DEFAULT_PORT, detections = [], loaded = 
                     model: 'mock/gliner2-test',
                     loaded,
                     anonymizationProxy: false,
+                    authRequired: false,
                 }));
                 return;
             }

@@ -1,49 +1,66 @@
 /**
- * popup.spec.js — E2E tests for the Veil extension popup (CommonJS).
+ * popup.spec.js — E2E tests for the AI-Safe Plugin extension popup (CommonJS).
  */
 const { test, expect } = require('./fixtures');
 const { startMockServer, stopMockServer } = require('./mock_server');
 
 const MOCK_SERVER_PORT = 18775;
 const MOCK_SERVER_URL = `http://127.0.0.1:${MOCK_SERVER_PORT}`;
+const POPUP_SITE_PATH = '/popup-site';
+const POPUP_SITE_URL = `${MOCK_SERVER_URL}${POPUP_SITE_PATH}`;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function clearOnboarding(page) {
-    await page.evaluate(() => new Promise((resolve) => chrome.storage.local.remove('veilOnboardingDone', resolve)));
+    await page.evaluate(() => new Promise((resolve) => chrome.storage.local.remove('aiSafePluginOnboardingDone', resolve)));
 }
 
 async function markOnboardingDone(page) {
-    await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({ veilOnboardingDone: true }, resolve)));
+    await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({ aiSafePluginOnboardingDone: true }, resolve)));
 }
 
 async function setLocalServerOverride(page, url) {
     await page.evaluate(
         (localServerUrl) => new Promise((resolve) => chrome.storage.local.set({
-            veilLocalServerUrlOverride: localServerUrl,
+            aiSafePluginLocalServerUrlOverride: localServerUrl,
         }, resolve)),
         url,
     );
 }
 
 async function clearLocalServerOverride(page) {
-    await page.evaluate(() => new Promise((resolve) => chrome.storage.local.remove('veilLocalServerUrlOverride', resolve)));
+    await page.evaluate(() => new Promise((resolve) => chrome.storage.local.remove('aiSafePluginLocalServerUrlOverride', resolve)));
+}
+
+async function openPopupForSite(context, extensionId, url) {
+    const target = await context.newPage();
+    await target.goto(url);
+    await target.waitForLoadState('domcontentloaded');
+
+    const page = await context.newPage();
+    await page.goto(`chrome-extension://${extensionId}/popup.html`);
+    await page.waitForLoadState('domcontentloaded');
+    await markOnboardingDone(page);
+    await page.reload();
+    await page.waitForLoadState('domcontentloaded');
+    await expect(page.locator('#currentSiteHost')).toHaveText('127.0.0.1');
+    return { page, target };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 test.describe('Popup UI', () => {
-    test('popup page title is "Veil"', async ({ extensionPopup }) => {
+    test('popup page title is "AI-Safe Plugin"', async ({ extensionPopup }) => {
         const { page } = extensionPopup;
-        await expect(page).toHaveTitle(/Veil/i);
+        await expect(page).toHaveTitle(/AI-Safe Plugin/i);
     });
 
-    test('Veil branding is visible', async ({ extensionPopup }) => {
+    test('AI-Safe Plugin branding is visible', async ({ extensionPopup }) => {
         const { page } = extensionPopup;
         await markOnboardingDone(page);
         await page.reload();
         await page.waitForLoadState('domcontentloaded');
-        await expect(page.locator('.brand-name')).toHaveText('Veil');
+        await expect(page.locator('.brand-name')).toHaveText('AI-Safe Plugin');
     });
 
     test('status card is visible', async ({ extensionPopup }) => {
@@ -68,13 +85,85 @@ test.describe('Popup UI', () => {
         await markOnboardingDone(page);
         await page.reload();
         await page.waitForLoadState('domcontentloaded');
-        await expect(page.locator('#nativeHostInstallCommand')).toContainText('github.com/Maya-Data-Privacy/Veil/releases/latest/download');
-        await expect(page.locator('#nativeHostUninstallCommand')).toContainText('github.com/Maya-Data-Privacy/Veil/releases/latest/download');
+        await expect(page.locator('#nativeHostInstallCommand')).toContainText('github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download');
+        await expect(page.locator('#nativeHostUninstallCommand')).toContainText('github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download');
+    });
+});
+
+test.describe('Per-site Quick Controls', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            pages: {
+                [POPUP_SITE_PATH]: '<!DOCTYPE html><html><body><textarea id="field"></textarea></body></html>',
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('turning Off here writes the current host to excludedSites', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
+
+        await page.locator('#siteToggleButton').click();
+        await expect(page.locator('#siteToggleButton')).toHaveText('Turn on');
+        await expect(page.locator('#siteSnoozeStatus')).toHaveText('Off on this site');
+        await expect(page.locator('#pauseSiteButton')).toBeHidden();
+        const excludedSites = await page.evaluate(() => new Promise((resolve) => {
+            chrome.storage.local.get('excludedSites', (result) => resolve(result.excludedSites || []));
+        }));
+
+        expect(excludedSites).toContain('127.0.0.1');
+        await page.close();
+        await target.close();
+    });
+
+    test('Pause 1h writes a future siteSnoozes entry and Resume clears it', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
+
+        await page.locator('#pauseSiteButton').click();
+        await expect(page.locator('#siteSnoozeStatus')).toContainText('Paused');
+        await expect(page.locator('#pauseSiteButton')).toHaveText('Resume');
+        const pausedUntil = await page.evaluate(() => new Promise((resolve) => {
+            chrome.storage.local.get('siteSnoozes', (result) => resolve(result.siteSnoozes?.['127.0.0.1'] || 0));
+        }));
+        expect(pausedUntil).toBeGreaterThan(Date.now());
+
+        await page.locator('#pauseSiteButton').click();
+        const afterResume = await page.evaluate(() => new Promise((resolve) => {
+            chrome.storage.local.get('siteSnoozes', (result) => resolve(result.siteSnoozes || {}));
+        }));
+        expect(afterResume['127.0.0.1']).toBeUndefined();
+
+        await page.close();
+        await target.close();
+    });
+
+    test('global Protection off disables site actions instead of showing conflicting controls', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, target } = await openPopupForSite(context, extensionId, POPUP_SITE_URL);
+
+        await page.locator('label.qs-toggle').filter({ has: page.locator('#enabledToggle') }).click();
+        await expect(page.locator('#siteSnoozeStatus')).toHaveText('Global protection is off');
+        await expect(page.locator('#pauseSiteButton')).toBeHidden();
+        await expect(page.locator('#siteToggleButton')).toBeDisabled();
+
+        await page.close();
+        await target.close();
     });
 });
 
 test.describe('Onboarding Wizard', () => {
-    test('overlay appears when veilOnboardingDone is unset', async ({ extensionPopup }) => {
+    test('overlay appears when aiSafePluginOnboardingDone is unset', async ({ extensionPopup }) => {
         const { page } = extensionPopup;
         await clearOnboarding(page);
         await page.reload();
@@ -88,7 +177,7 @@ test.describe('Onboarding Wizard', () => {
         await clearOnboarding(page);
         await page.reload();
         await page.waitForTimeout(500);
-        await expect(page.locator('.onboarding-title').first()).toContainText('Welcome to Veil');
+        await expect(page.locator('.onboarding-title').first()).toContainText('Welcome to AI-Safe Plugin');
     });
 
     test('skip button hides the overlay', async ({ extensionPopup }) => {
@@ -100,7 +189,7 @@ test.describe('Onboarding Wizard', () => {
         await expect(page.locator('#onboardingOverlay')).toBeHidden();
     });
 
-    test('skip sets veilOnboardingDone in storage', async ({ extensionPopup }) => {
+    test('skip sets aiSafePluginOnboardingDone in storage', async ({ extensionPopup }) => {
         const { page } = extensionPopup;
         await clearOnboarding(page);
         await page.reload();
@@ -108,7 +197,7 @@ test.describe('Onboarding Wizard', () => {
         await page.locator('#onboardingOverlay').waitFor({ state: 'visible', timeout: 5000 });
         await page.locator('#onboardingSkipBtn').click({ force: true });
         const done = await page.evaluate(() =>
-            new Promise((resolve) => chrome.storage.local.get('veilOnboardingDone', (r) => resolve(r.veilOnboardingDone)))
+            new Promise((resolve) => chrome.storage.local.get('aiSafePluginOnboardingDone', (r) => resolve(r.aiSafePluginOnboardingDone)))
         );
         expect(done).toBeTruthy();
     });
@@ -174,12 +263,12 @@ test.describe('Server Status (with mock server)', () => {
     test('regex runtime note reflects AI-only vs AI-plus-regex states', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
         await page.waitForFunction(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             return sm && sm._initPromise;
         });
-        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             if (sm.serverPollTimer) {
                 clearInterval(sm.serverPollTimer);
                 sm.serverPollTimer = null;
@@ -201,7 +290,7 @@ test.describe('Server Status (with mock server)', () => {
         await expect(page.locator('#regexRuntimeState')).toContainText('AI only');
 
         await page.evaluate(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             sm.settings.includeRegexWhenModelOnline = true;
             sm.renderRegexRuntimeState();
         });
@@ -251,12 +340,12 @@ test.describe('Release Status UX', () => {
         const { page } = extensionOptions;
 
         await page.waitForFunction(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             return sm && sm._initPromise;
         });
-        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
             clearInterval(sm.statsPollTimer);
             sm.serverPollTimer = null;
@@ -269,7 +358,7 @@ test.describe('Release Status UX', () => {
                 status: 'ready',
                 latestTag: 'v9.9.9',
                 publishedAt: '2026-04-02T08:00:00Z',
-                htmlUrl: 'https://github.com/Maya-Data-Privacy/Veil/releases/tag/v9.9.9',
+                htmlUrl: 'https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/tag/v9.9.9',
                 comparableToExtension: true,
                 extensionUpdateAvailable: true,
                 error: '',
@@ -282,7 +371,7 @@ test.describe('Release Status UX', () => {
         });
 
         await expect(page.locator('#sidebarUpdateTitle')).toHaveText('Backend current, extension behind');
-        await expect(page.locator('#releaseNoticeTitle')).toHaveText('Reload the extension to finish updating Veil');
+        await expect(page.locator('#releaseNoticeTitle')).toHaveText('Reload the extension to finish updating AI-Safe Plugin');
         await expect(page.locator('#serverUpdateBlock')).toBeHidden();
     });
 
@@ -290,12 +379,12 @@ test.describe('Release Status UX', () => {
         const { page } = extensionOptions;
 
         await page.waitForFunction(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             return sm && sm._initPromise;
         });
-        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
             clearInterval(sm.statsPollTimer);
             sm.serverPollTimer = null;
@@ -309,7 +398,7 @@ test.describe('Release Status UX', () => {
                 status: 'ready',
                 latestTag: `v${manifestVersion}`,
                 publishedAt: '2026-04-02T08:00:00Z',
-                htmlUrl: 'https://github.com/Maya-Data-Privacy/Veil/releases/latest',
+                htmlUrl: 'https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest',
                 comparableToExtension: true,
                 extensionUpdateAvailable: false,
                 error: '',
@@ -330,12 +419,12 @@ test.describe('Release Status UX', () => {
         const { page } = extensionOptions;
 
         await page.waitForFunction(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             return sm && sm._initPromise;
         });
-        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
             clearInterval(sm.statsPollTimer);
             sm.serverPollTimer = null;
@@ -352,7 +441,7 @@ test.describe('Release Status UX', () => {
             sm.serverMeta = {
                 ...sm.serverMeta,
                 bundleReleaseTag: `v${v}`,
-                bundleReleaseUrl: `https://github.com/Maya-Data-Privacy/Veil/releases/tag/v${v}`,
+                bundleReleaseUrl: `https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/tag/v${v}`,
             };
             sm.renderReleaseInfo();
         });
@@ -367,12 +456,12 @@ test.describe('Release Status UX', () => {
         const { page } = extensionOptions;
 
         await page.waitForFunction(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             return sm && sm._initPromise;
         });
-        await page.evaluate(() => window.__VEIL_SETTINGS_MANAGER__._initPromise);
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
         await page.evaluate(() => {
-            const sm = window.__VEIL_SETTINGS_MANAGER__;
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
             clearInterval(sm.serverPollTimer);
             clearInterval(sm.statsPollTimer);
             sm.serverPollTimer = null;
@@ -427,5 +516,78 @@ test.describe('Options Navigation', () => {
         expect(headingBox).not.toBeNull();
         expect(headingBox.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1);
         await expect(page.locator('.opt-nav-item[data-section="about"]')).toHaveClass(/is-active/);
+    });
+});
+
+test.describe('Delete all AI-Safe Plugin data', () => {
+    test('two-click wipe clears sensitive keys and re-seeds defaults', async ({ extensionOptions }) => {
+        const { page } = extensionOptions;
+
+        await page.waitForFunction(() => {
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
+
+        // Seed sensitive, non-default data that a true wipe must remove.
+        await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({
+            aiSafePluginApiKey: 'fake-secret-key',
+            'ai_safe_plugin::aliases::example.com': { aliases: { person: 'Alias_1' }, updatedAt: Date.now() },
+            aiSafePluginStats: { totalProtected: 5, byLabel: { person: 5 }, byWeek: { '2026-W25': 5 } },
+        }, resolve)));
+
+        const before = await page.evaluate(() =>
+            new Promise((resolve) => chrome.storage.local.get(['aiSafePluginApiKey', 'ai_safe_plugin::aliases::example.com'], resolve)));
+        expect(before.aiSafePluginApiKey).toBe('fake-secret-key');
+        expect(before['ai_safe_plugin::aliases::example.com']).toBeTruthy();
+
+        const button = page.locator('#deleteAllDataButton');
+        await expect(button).toBeVisible();
+
+        // First click arms the confirm; second click performs the wipe.
+        await button.click();
+        await expect(button).toHaveText('Click again to confirm');
+        await button.click();
+        await page.waitForTimeout(500);
+
+        const after = await page.evaluate(() =>
+            new Promise((resolve) => chrome.storage.local.get(null, resolve)));
+
+        expect(after.aiSafePluginApiKey).toBeUndefined();
+        expect(after['ai_safe_plugin::aliases::example.com']).toBeUndefined();
+        expect(after.aiSafePluginStats).toBeUndefined();
+        // Defaults are re-seeded after the wipe.
+        expect(after.enabled).toBe(true);
+    });
+});
+
+test.describe('Settings Sync (P2)', () => {
+    test('non-sensitive settings sync; secrets never do', async ({ extensionOptions }) => {
+        const { page } = extensionOptions;
+
+        await page.waitForFunction(() => {
+            const sm = window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__;
+            return sm && sm._initPromise;
+        });
+        await page.evaluate(() => window.__AI_SAFE_PLUGIN_SETTINGS_MANAGER__._initPromise);
+
+        // Clear any prior sync state, then seed a local secret that must never sync.
+        await page.evaluate(() => new Promise((resolve) => chrome.storage.sync.clear(resolve)));
+        await page.evaluate(() => new Promise((resolve) => chrome.storage.local.set({ aiSafePluginApiKey: 'fake-sync-secret' }, resolve)));
+
+        // Change a synced setting.
+        await page.locator('#sensitivitySelect').selectOption('high');
+
+        // The synced value + meta appear in chrome.storage.sync (write-through is debounced).
+        await expect.poll(() => page.evaluate(() =>
+            new Promise((resolve) => chrome.storage.sync.get('sensitivity', (d) => resolve(d.sensitivity || null)))), { timeout: 5000 })
+            .toBe('high');
+
+        const sync = await page.evaluate(() => new Promise((resolve) => chrome.storage.sync.get(null, resolve)));
+        expect(sync.aiSafePluginSyncMeta && sync.aiSafePluginSyncMeta.updatedAt).toBeTruthy();
+
+        // Secrets must never be written to sync — by key or by value.
+        expect(sync.aiSafePluginApiKey).toBeUndefined();
+        expect(JSON.stringify(sync)).not.toContain('fake-sync-secret');
     });
 });

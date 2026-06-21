@@ -3,8 +3,20 @@
 
 const {
   cloneDefaultCustomPatterns,
-  normalizeCustomPatterns
-} = globalThis.VEIL_PATTERN_CATALOG;
+  normalizeCustomPatterns,
+  HIGH_RISK_LABELS,
+  pruneIgnoredByTtl,
+  capFifo,
+  normalizeSiteHost,
+  hostMatchesSite,
+  isoWeekKey,
+  mergeRedactionStats
+} = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
+
+const STATS_STORAGE_KEY = 'aiSafePluginStats';
+
+const IGNORED_VALUES_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const IGNORED_VALUES_MAX_PER_SITE = 200;
 
 const DEFAULT_MONITORED_SELECTORS = [
   'textarea',
@@ -70,7 +82,43 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MASK_MODE_HINT_STORAGE_KEY = 'maskModeHintSeen';
 const FAST_PROTECTION_MIN_CHARS = 480;
 
-// ── Selectors that identify known LLM assistant / thread areas so Veil never
+function isStaticRedactionToken(value) {
+  return /^\[[A-Z0-9_ -]+ REDACTED\]$/.test(String(value || '').trim());
+}
+
+// One-line "why this matters" copy per detection label, shown in the hover
+// popover (U2). Keys mirror getMaskText's label map; unknown labels fall back to
+// LABEL_EXPLANATION_FALLBACK.
+const LABEL_EXPLANATIONS = {
+  person: 'Names can identify you or others and link activity back to a real person.',
+  email: 'Email addresses can identify you and invite spam or phishing.',
+  phone: 'Phone numbers can identify you and enable unwanted contact.',
+  address: 'Physical addresses reveal where you live or work.',
+  ssn: 'Social Security numbers enable identity theft — never share them.',
+  credit_card: 'Card numbers can be used for fraud if exposed.',
+  date_of_birth: 'A date of birth helps others verify or impersonate your identity.',
+  location: 'Locations can reveal where you are or frequent.',
+  organization: 'Organization names can reveal your employer or affiliations.',
+  api_key: 'API keys grant access to your accounts and services — treat as secrets.',
+  ip_address: 'IP addresses can approximate your location and identify your network.',
+  jwt: 'JWTs are session credentials that can be replayed to impersonate you.',
+  pan: 'A PAN is a government identifier that can enable financial fraud.',
+  aadhaar: 'Aadhaar numbers are sensitive national IDs — avoid sharing them.',
+  passport: 'Passport numbers are strong identity documents and enable fraud.',
+  ifsc: 'IFSC codes identify bank branches used for transfers.',
+  driver_license: 'Driver license numbers are identity documents that enable fraud.',
+  bank_account: 'Bank account numbers can be used for fraud or unwanted transfers.',
+  oauth_token: 'OAuth tokens grant access to your accounts — treat as secrets.',
+  mac_address: 'MAC addresses can uniquely identify your device.',
+  employee_id: 'Employee IDs can link activity to you within an organization.',
+  device_id: 'Device IDs can uniquely identify and track your hardware.',
+  session_id: 'Session IDs can be replayed to hijack your logged-in session.',
+  private_key: 'Private keys grant full access to encrypted data and systems.',
+  connection_string: 'Connection strings often embed database credentials.'
+};
+const LABEL_EXPLANATION_FALLBACK = 'This looks like sensitive information you may not want to share.';
+
+// ── Selectors that identify known LLM assistant / thread areas so AI-Safe Plugin never
 // scans or mutates provider-owned conversation history. ─────────────────────
 const ASSISTANT_RESPONSE_SELECTORS = [
   '[data-message-author-role="assistant"]',
@@ -100,12 +148,15 @@ const RESPONSE_AREA_SELECTORS = [
   ...USER_THREAD_MESSAGE_SELECTORS
 ];
 
-class VeilContentController {
+class AiSafePluginContentController {
   constructor() {
     this.settings = null;
     this.isEnabled = false;
     this.overlay = null;
     this.pageStats = { detections: 0, redactions: 0 };
+    // Throttle for the toolbar-icon badge push (U1).
+    this._toolbarStatsLast = 0;
+    this._toolbarStatsTimer = null;
 
     this.monitoredElements = new Map();
     this.redactions = new Map();        // element → { sourceText, sourceHtml, mode, items[] }
@@ -118,16 +169,25 @@ class VeilContentController {
     this.postInteractionTimers = new Map();
     this.suppressedInput = new WeakSet();
     this.tokenTrays = new Map();
-    this.scanningPills = new Map();
-    this.actionBars = new Map();
+    this.fieldBadges = new Map();
+    this.fieldPanels = new Map();
+    this.badgeBlurTimers = new Map();
+    this.focusedElements = new Set();
     this.autoRedactTimers = new Map();
     this.dismissedDetections = new WeakMap(); // element → Set of "start:end:label"
     this.maskModeHintChecked = false;
+    // True while the local model is unreachable and regex-only protection is
+    // active — drives the field badge's fallback indicator dot.
+    this.modelOffline = false;
 
     // Per-site alias ledger — ensures PERSON_1 stays PERSON_1 across sessions
     // on the same site. Loaded from chrome.storage on init, 30-day TTL.
     this.siteAliasCache = { aliases: {}, counters: {}, maskCounters: {} };
     this.siteAliasPersistTimer = null;
+    // Per-site "ignore this value" allowlist (U3). label → Set<value>.
+    this.siteIgnoredValues = new Map();
+    this._siteIgnoredEntries = [];
+    this._siteIgnoredPersistTimer = null;
     this.responseRestoreLedger = new Map();
     this.responseRestoreTimer = 0;
 
@@ -136,7 +196,10 @@ class VeilContentController {
     this.siteRedactCount = 0;
 
     this.activePopover = null;
-    this.activePopoverHideTimer = null;
+    this.activePopoverState = null;   // { element, itemIndex, anchorRect } for the open card
+    this.popoverOpenTimer = 0;
+    this.popoverHideTimer = 0;
+    this._popoverKeydown = null;
     this.activeRevealOverlay = null;
     this.activeRevealState = null;
     this.revealOpenTimer = 0;
@@ -153,6 +216,7 @@ class VeilContentController {
     this.domObserver = null;
     this.stateReconcileTimer = null;
     this._pollingInterval = null;
+    this._settingsChangeListenerBound = false;
     this.handleViewportChange = () => this.scheduleAnchoredUiRefresh('viewport');
     this.handleRuntimeMessage = this.handleRuntimeMessage.bind(this);
     chrome.runtime.onMessage.addListener(this.handleRuntimeMessage);
@@ -166,9 +230,9 @@ class VeilContentController {
 
   detectPlatform() {
     const hostname = window.location.hostname.toLowerCase();
-    if (hostname.includes('chatgpt') || hostname.includes('openai')) return 'chatgpt';
-    if (hostname.includes('claude')) return 'claude';
-    if (hostname.includes('gemini') || hostname.includes('google')) return 'gemini';
+    if (hostMatchesSite(hostname, 'chatgpt.com') || hostMatchesSite(hostname, 'chat.openai.com')) return 'chatgpt';
+    if (hostMatchesSite(hostname, 'claude.ai')) return 'claude';
+    if (hostMatchesSite(hostname, 'gemini.google.com') || hostMatchesSite(hostname, 'bard.google.com')) return 'gemini';
     return 'generic';
   }
 
@@ -186,21 +250,57 @@ class VeilContentController {
 
   async init() {
     await this.loadSettings();
+    this.setupSettingsChangeListener();
 
     if (!this.settings.enabled) return;
     if (!this.isSiteMonitored()) return;
 
-    this.isEnabled = true;
-    this.createOverlay();
-    await this.initializeModel();
-    // Load per-site alias ledger before starting monitoring so that the first
-    // element to trigger detection already has the correct counter seed.
-    await this.loadSiteAliasLedger();
-    this.startMonitoring();
+    // P1 — lazy boot. On known AI platforms boot immediately (unchanged behavior).
+    // On generic pages, defer the heavy setup (overlay, model ping, ledgers,
+    // observers, polling, reconciler) until the user focuses a monitored field —
+    // so most browsing does zero work.
+    if (this.detectPlatform() !== 'generic') {
+      await this.activateMonitoring('init');
+    } else {
+      this.armLazyBoot();
+    }
+  }
 
-    // Rehydrate cached redactions
-    this.rehydrateCachedRedactions();
-    this.scheduleAssistantResponseRestore('init');
+  // Cheap arming phase (P1): one delegated focusin listener + a probe of the
+  // already-focused element. Boots the full controller once, on first focus of a
+  // monitored field, then detaches.
+  armLazyBoot() {
+    if (this._lazyBootStarted || this.isEnabled) return;
+    const selector = (this.settings.monitoredSelectors || this.getPlatformSelectors()).join(',');
+
+    const matchesMonitored = (el) => {
+      try { return el instanceof Element && !!selector && el.matches(selector); }
+      catch { return false; }
+    };
+
+    const fullBoot = async () => {
+      if (this._lazyBootStarted) return;
+      this._lazyBootStarted = true;
+      document.removeEventListener('focusin', onFocusIn, true);
+      await this.activateMonitoring('focusin');
+      // The focusin that triggered boot fired before the per-element focus
+      // listeners existed, so reflect focus now: surface the (idle) badge for the
+      // currently-focused field, mirroring handleFocus().
+      const active = document.activeElement;
+      if (matchesMonitored(active) && this.monitoredElements.has(active)) {
+        this.focusedElements.add(active);
+        this.showFieldBadge(active);
+        this.updateFieldBadge(active, this.redactions.get(active));
+      }
+    };
+
+    const onFocusIn = (event) => {
+      if (matchesMonitored(event.target)) void fullBoot();
+    };
+
+    document.addEventListener('focusin', onFocusIn, true);
+    // Handle a field that is already focused at arming time.
+    if (matchesMonitored(document.activeElement)) fullBoot();
   }
 
   async loadSettings() {
@@ -216,7 +316,9 @@ class VeilContentController {
         'monitoredSites',
         'monitoredSelectors',
         'customPatterns',
-        'customEntityTypes'
+        'customEntityTypes',
+        'excludedSites',
+        'siteSnoozes'
       ], (result) => {
         this.settings = {
           enabled: result.enabled ?? true,
@@ -226,12 +328,20 @@ class VeilContentController {
           includeRegexWhenModelOnline: result.includeRegexWhenModelOnline ?? true,
           enabledTypes: result.enabledTypes ?? ['person', 'email', 'phone', 'address', 'ssn', 'credit_card'],
           monitorAllSites: result.monitorAllSites ?? true,
-          monitoredSites: result.monitoredSites ?? ['claude.ai', 'gemini.google.com', 'chatgpt.com'],
+          monitoredSites: result.monitoredSites ?? [
+            'chatgpt.com', 'chat.openai.com', 'claude.ai', 'gemini.google.com',
+            'copilot.microsoft.com', 'perplexity.ai', 'grok.com', 'x.ai',
+            'chat.deepseek.com', 'chat.mistral.ai', 'poe.com', 'character.ai',
+            'pi.ai', 'you.com', 'meta.ai', 'chat.qwen.ai', 'chat.qwenlm.ai',
+            'duck.ai', 'huggingface.co', 'phind.com', 't3.chat'
+          ],
           monitoredSelectors: Array.isArray(result.monitoredSelectors) && result.monitoredSelectors.length > 0
             ? result.monitoredSelectors
             : this.getPlatformSelectors(),
           customPatterns: normalizeCustomPatterns(result.customPatterns, cloneDefaultCustomPatterns()),
-          customEntityTypes: Array.isArray(result.customEntityTypes) ? result.customEntityTypes : []
+          customEntityTypes: Array.isArray(result.customEntityTypes) ? result.customEntityTypes : [],
+          excludedSites: Array.isArray(result.excludedSites) ? result.excludedSites : [],
+          siteSnoozes: result.siteSnoozes && typeof result.siteSnoozes === 'object' ? result.siteSnoozes : {}
         };
         resolve();
       });
@@ -239,19 +349,66 @@ class VeilContentController {
   }
 
   isSiteMonitored() {
-    if (this.settings.monitorAllSites) return true;
     const host = window.location.hostname;
-    return this.settings.monitoredSites.some((site) => host.includes(site));
+    const monitored = this.settings.monitorAllSites
+      || this.settings.monitoredSites.some((site) => hostMatchesSite(host, site));
+    if (!monitored) return false;
+    if (this.settings.excludedSites.some((site) => hostMatchesSite(host, site))) return false;
+
+    const normalizedHost = normalizeSiteHost(host);
+    const now = Date.now();
+    const snoozes = this.settings.siteSnoozes || {};
+    const pruned = {};
+    let changed = false;
+    Object.entries(snoozes).forEach(([site, until]) => {
+      const normalizedSite = normalizeSiteHost(site);
+      const untilMs = Number(until) || 0;
+      if (!normalizedSite || untilMs <= now) {
+        changed = true;
+        return;
+      }
+      pruned[normalizedSite] = untilMs;
+      if (normalizedSite !== site) changed = true;
+    });
+    if (changed) {
+      this.settings.siteSnoozes = pruned;
+      chrome.storage.local.set({ siteSnoozes: pruned });
+    }
+    return !(normalizedHost && pruned[normalizedHost] > now);
+  }
+
+  async activateMonitoring(_reason = 'settings') {
+    if (this.isEnabled) {
+      this.findInputElements();
+      this.scanCurrentInputs('reactivate');
+      return;
+    }
+
+    this.isEnabled = true;
+    if (!this.overlay?.isConnected) {
+      this.createOverlay();
+    }
+    await this.initializeModel();
+    // Load per-site alias ledger before starting monitoring so that the first
+    // element to trigger detection already has the correct counter seed.
+    await this.loadSiteAliasLedger();
+    await this.loadSiteIgnoredValues();
+    this.startMonitoring();
+    this.scanCurrentInputs('activate');
+
+    // Rehydrate cached redactions
+    this.rehydrateCachedRedactions();
+    this.scheduleAssistantResponseRestore('activate');
   }
 
   async initializeModel() {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'initialize' });
       if (response?.mode) {
-        console.debug('[Veil] detection mode:', response.mode);
+        console.debug('[AI-Safe Plugin] detection mode:', response.mode);
       }
     } catch (error) {
-      console.error('[Veil] initialize failed:', error);
+      console.error('[AI-Safe Plugin] initialize failed:', error);
     }
   }
 
@@ -318,6 +475,7 @@ class VeilContentController {
       const replacement = this.getReplacementText(item, state.mode);
       const original = String(item.text || '').trim();
       if (!replacement || !original || replacement === original) return;
+      if (isStaticRedactionToken(replacement)) return;
       this.responseRestoreLedger.set(replacement, original);
       this.buildResponseRestoreComponents(item, replacement, original).forEach(([partialReplacement, partialOriginal]) => {
         if (!partialReplacement || !partialOriginal || partialReplacement === partialOriginal) return;
@@ -464,6 +622,7 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   startMonitoring() {
+    this.isEnabled = true;
     this.findInputElements();
     this.startStateReconciler();
     this.startDynamicMonitoring();
@@ -498,14 +657,19 @@ class VeilContentController {
     window.addEventListener('scroll', this.handleViewportChange, true);
     window.addEventListener('resize', this.handleViewportChange);
 
-    // Hide scanning pills when the tab goes to the background so they don't
+    // Hide field badges when the tab goes to the background so they don't
     // linger and appear stale when switching back.
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
-        this.monitoredElements.forEach((_, el) => this.hideScanningPill(el));
+        this.monitoredElements.forEach((_, el) => this.hideFieldBadge(el));
       }
     });
 
+  }
+
+  setupSettingsChangeListener() {
+    if (this._settingsChangeListenerBound) return;
+    this._settingsChangeListenerBound = true;
     chrome.storage.onChanged.addListener((changes) => {
       if (
         changes.enabled ||
@@ -517,14 +681,16 @@ class VeilContentController {
         changes.monitorAllSites ||
         changes.monitoredSites ||
         changes.monitoredSelectors ||
+        changes.excludedSites ||
+        changes.siteSnoozes ||
         changes.customPatterns ||
         changes.customEntityTypes
       ) {
-        this.loadSettings().then(() => {
+        this.loadSettings().then(async () => {
           if (!this.settings.enabled || !this.isSiteMonitored()) {
             this.stopMonitoring();
           } else {
-            this.findInputElements();
+            await this.activateMonitoring('settings-change');
           }
         });
       }
@@ -550,11 +716,11 @@ class VeilContentController {
   }
 
   refreshAnchoredUi() {
-    this.repositionActionBars();
+    this.repositionFieldBadges();
     this.repositionTokenTrays();
-    this.repositionScanningPills();
     this._refreshAllOverlays();
     this.refreshRevealOverlayPosition();
+    this.refreshPopoverPosition();
     this.cleanupOrphanedUIElements();
   }
 
@@ -629,7 +795,7 @@ class VeilContentController {
   startDynamicMonitoring() {
     // This is now integrated into startMonitoring's MutationObserver
     // but we keep the method for clarity and potential separate use
-    console.debug('[Veil] Dynamic monitoring active for:', this.detectPlatform());
+    console.debug('[AI-Safe Plugin] Dynamic monitoring active for:', this.detectPlatform());
   }
 
   // Polling fallback for SPA navigation that doesn't trigger MutationObserver
@@ -647,7 +813,13 @@ class VeilContentController {
     this.pruneDisconnectedMonitoredElements();
 
     this.settings.monitoredSelectors.forEach((selector) => {
-      const elements = document.querySelectorAll(selector);
+      let elements;
+      try {
+        elements = document.querySelectorAll(selector);
+      } catch (error) {
+        console.warn('[AI-Safe Plugin] Ignoring invalid monitored selector:', selector, error?.message || error);
+        return;
+      }
       elements.forEach((element) => {
         if (!this.isElementEligible(element)) return;
         if (!this.monitoredElements.has(element)) {
@@ -670,6 +842,15 @@ class VeilContentController {
           this.aliasLedgers.delete(element);
         }
       }
+    });
+  }
+
+  scanCurrentInputs(reason = 'reactivate') {
+    this.monitoredElements.forEach((_listeners, element) => {
+      const text = this.getRawElementText(element);
+      if (!text || text.trim().length < 1) return;
+      this.bumpInputRevision(element);
+      this.scheduleDetection(element, reason);
     });
   }
 
@@ -725,24 +906,24 @@ class VeilContentController {
       }
     });
 
-    // Remove orphaned action bars, scanning pills, token trays
-    // (These are tracked in WeakMaps/Maps but may leak if element is GC'd)
-    this.actionBars.forEach?.((bar, element) => {
+    // Remove orphaned field badges, panels, token trays
+    // (These are tracked in Maps but may leak if element is GC'd)
+    this.fieldBadges.forEach((badge, element) => {
       if (!element?.isConnected) {
-        bar.remove();
-        this.actionBars.delete(element);
+        badge.remove();
+        this.fieldBadges.delete(element);
+      }
+    });
+    this.fieldPanels.forEach((panel, element) => {
+      if (!element?.isConnected) {
+        panel.remove();
+        this.fieldPanels.delete(element);
       }
     });
     this.tokenTrays.forEach((tray, element) => {
       if (!element?.isConnected) {
         tray.remove();
         this.tokenTrays.delete(element);
-      }
-    });
-    this.scanningPills.forEach((pill, element) => {
-      if (!element?.isConnected) {
-        pill.remove();
-        this.scanningPills.delete(element);
       }
     });
     // Remove fixed-position overlay highlights whose source element is gone.
@@ -761,6 +942,7 @@ class VeilContentController {
       this.cancelPostInteractionCleanup(element);
       element.removeEventListener('input', listeners.handleInput);
       element.removeEventListener('paste', listeners.handlePaste);
+      element.removeEventListener('focus', listeners.handleFocus);
       element.removeEventListener('blur', listeners.handleBlur);
       element.removeEventListener('keydown', listeners.handleKeydown);
       element.removeEventListener('compositionstart', listeners.handleCompositionStart);
@@ -843,9 +1025,23 @@ class VeilContentController {
     };
     const handleInput = () => bumpAndSchedule('typing');
     const handlePaste = () => bumpAndSchedule('paste');
+    const handleFocus = () => {
+      this.focusedElements.add(element);
+      // Cancel any pending blur-hide timer since field is focused again
+      const blurTimer = this.badgeBlurTimers.get(element);
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        this.badgeBlurTimers.delete(element);
+      }
+      this.showFieldBadge(element);
+      const st = this.redactions.get(element);
+      this.updateFieldBadge(element, st);
+    };
     const handleBlur = () => {
+      this.focusedElements.delete(element);
       this.scheduleDetection(element, 'blur');
       this.schedulePostInteractionCleanup(element);
+      this.scheduleFieldBadgeBlurHide(element);
     };
     const handleCompositionStart = () => { element.dataset.psComposing = '1'; };
     const handleCompositionEnd = () => {
@@ -863,7 +1059,7 @@ class VeilContentController {
       }
       if (event.key === 'Enter' && !event.shiftKey && this.hasPendingProtection(element)) {
         event.preventDefault();
-        this.showNotification('Veil is still protecting this message. Please wait a moment.', 'warning');
+        this.showNotification('AI-Safe Plugin is still protecting this message. Please wait a moment.', 'warning');
       }
       if (event.key === 'Enter' && !event.shiftKey && this.hasUnreviewedRedactions(element)) {
         event.preventDefault();
@@ -873,9 +1069,9 @@ class VeilContentController {
         // Immediately clear all visual artifacts so nothing lingers after send
         this.clearHighlights(element);
         this._clearElementOverlay(element); // removes fixed-position ps-overlay-hl divs instantly
-        this.removeActionBar(element);
+        this.hideFieldPanel(element);
         this.removeTokenTray(element);
-        this.hideScanningPill(element);
+        this.hideFieldBadge(element);
         this.hidePopover();
         this.schedulePostInteractionCleanup(element);
       }
@@ -883,6 +1079,7 @@ class VeilContentController {
 
     element.addEventListener('input', handleInput);
     element.addEventListener('paste', handlePaste);
+    element.addEventListener('focus', handleFocus);
     element.addEventListener('blur', handleBlur);
     element.addEventListener('keydown', handleKeydown);
     element.addEventListener('compositionstart', handleCompositionStart);
@@ -894,7 +1091,7 @@ class VeilContentController {
       handleSubmit = (event) => {
         if (this.hasPendingProtection(element)) {
           event.preventDefault();
-          this.showNotification('Veil is still protecting this message. Please wait a moment.', 'warning');
+          this.showNotification('AI-Safe Plugin is still protecting this message. Please wait a moment.', 'warning');
         }
         if (this.hasUnreviewedRedactions(element)) {
           event.preventDefault();
@@ -904,9 +1101,9 @@ class VeilContentController {
         // linger when the user sends via a submit button rather than keyboard.
         this.clearHighlights(element);
         this._clearElementOverlay(element);
-        this.removeActionBar(element);
+        this.hideFieldPanel(element);
         this.removeTokenTray(element);
-        this.hideScanningPill(element);
+        this.hideFieldBadge(element);
         this.hidePopover();
         this.schedulePostInteractionCleanup(element);
       };
@@ -924,6 +1121,7 @@ class VeilContentController {
     this.monitoredElements.set(element, {
       handleInput,
       handlePaste,
+      handleFocus,
       handleBlur,
       handleKeydown,
       handleCompositionStart,
@@ -974,7 +1172,7 @@ class VeilContentController {
     const targetRevision = this.getInputRevision(element);
     const delay = reason === 'blur'
       ? BLUR_DELAY_MS
-      : reason === 'paste'
+      : (reason === 'paste' || reason === 'activate' || reason === 'reactivate')
         ? PASTE_IDLE_DELAY_MS
         : TYPING_IDLE_DELAY_MS;
 
@@ -993,97 +1191,677 @@ class VeilContentController {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // Scanning Indicator (floating logo)
+  // Field Status Badge
   // ═══════════════════════════════════════════════════════════
 
-  showScanningPill(element) {
-    let pill = this.scanningPills.get(element);
-    if (!pill) {
-      pill = document.createElement('div');
-      pill.className = 'ps-scanning-pill';
-      pill.innerHTML = `
-        <span class="ps-scan-dot" aria-hidden="true"></span>
-        <div class="ps-scan-copy">
-          <div class="ps-scan-title">Veil</div>
-          <div class="ps-scan-sub">Scanning...</div>
-        </div>
-      `;
-      document.body.appendChild(pill);
-      this.scanningPills.set(element, pill);
-    }
+  // Bold, simplified Maya atom drawn inline so it stays legible at the small
+  // badge size (the detailed white PNG mark vanishes below ~24px). White via
+  // currentColor on the purple disc.
+  _buildBadgeAtom() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '24');
+    svg.setAttribute('height', '24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'ps-badge-svg ps-badge-img');
 
-    if (pill.psHideTimer) {
-      clearTimeout(pill.psHideTimer);
-      pill.psHideTimer = null;
-    }
+    [0, 60, 120].forEach((deg) => {
+      const ellipse = document.createElementNS(ns, 'ellipse');
+      ellipse.setAttribute('cx', '12');
+      ellipse.setAttribute('cy', '12');
+      ellipse.setAttribute('rx', '9.5');
+      ellipse.setAttribute('ry', '3.6');
+      ellipse.setAttribute('fill', 'none');
+      ellipse.setAttribute('stroke', 'currentColor');
+      ellipse.setAttribute('stroke-width', '2.2');
+      ellipse.setAttribute('transform', `rotate(${deg} 12 12)`);
+      svg.appendChild(ellipse);
+    });
 
-    this.positionScanningPill(element, pill);
-    requestAnimationFrame(() => pill.classList.add('ps-scanning-pill-visible'));
+    const nucleus = document.createElementNS(ns, 'circle');
+    nucleus.setAttribute('cx', '12');
+    nucleus.setAttribute('cy', '12');
+    nucleus.setAttribute('r', '2.6');
+    nucleus.setAttribute('fill', 'currentColor');
+    svg.appendChild(nucleus);
+
+    return svg;
   }
 
-  positionScanningPill(element, pill) {
-    if (!element?.isConnected || !pill) return;
+  _buildCheckSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 14 14');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('class', 'ps-badge-check');
+    const path = document.createElementNS(ns, 'polyline');
+    path.setAttribute('points', '2.5,7 5.5,10 11.5,4');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  showFieldBadge(element) {
+    const rect = element.getBoundingClientRect();
+    if (rect.width < 80 || rect.height < 28) return;
+
+    let badge = this.fieldBadges.get(element);
+    if (!badge) {
+      badge = document.createElement('div');
+      badge.className = 'ps-field-badge';
+      badge.setAttribute('role', 'button');
+      badge.tabIndex = 0;
+      badge.setAttribute('aria-label', 'AI-Safe Plugin');
+
+      const mark = this._buildBadgeAtom();
+      badge.appendChild(mark);
+
+      const checkSvg = this._buildCheckSvg();
+      badge.appendChild(checkSvg);
+
+      const countEl = document.createElement('span');
+      countEl.className = 'ps-badge-count';
+      badge.appendChild(countEl);
+
+      const dotEl = document.createElement('span');
+      dotEl.className = 'ps-badge-dot';
+      badge.appendChild(dotEl);
+
+      document.body.appendChild(badge);
+      this.fieldBadges.set(element, badge);
+
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleFieldPanel(element);
+      });
+      // Keyboard activation — Enter/Space open the panel and move focus into it.
+      badge.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          e.stopPropagation();
+          this.toggleFieldPanel(element, true);
+        }
+      });
+    }
+
+    this.positionFieldBadge(element, badge);
+    // Only make the badge visible if the element is currently focused or has pending items
+    const state = this.redactions.get(element);
+    const items = state?.items || [];
+    const hasPending = items.some((i) => !i.redacted);
+    if (this.focusedElements.has(element) || hasPending) {
+      requestAnimationFrame(() => badge.classList.add('ps-badge-visible'));
+    }
+  }
+
+  updateFieldBadge(element, state) {
+    const badge = this.fieldBadges.get(element);
+    if (!badge) return;
 
     const rect = element.getBoundingClientRect();
-    const margin = 10;
-    const estimatedWidth = pill.getBoundingClientRect().width || 210;
-    const insideTopOffset = Math.min(Math.max(rect.height * 0.18, 8), 18);
-    const top = window.scrollY + rect.top + insideTopOffset;
+    if (rect.width < 80 || rect.height < 28) {
+      badge.style.display = 'none';
+      return;
+    }
+    badge.style.display = '';
 
-    let left = window.scrollX + rect.left + ((rect.width - estimatedWidth) / 2);
-    const minLeft = window.scrollX + margin;
-    const maxLeft = window.scrollX + window.innerWidth - estimatedWidth - margin;
-    left = Math.max(minLeft, Math.min(maxLeft, left));
+    // Derive badge state from element state
+    const analyzing = element.classList.contains('ps-analyzing');
+    const items = state?.items || [];
+    const unredacted = items.filter((i) => !i.redacted);
+    const allRedacted = items.length > 0 && items.every((i) => i.redacted);
 
-    pill.style.top = `${top}px`;
-    pill.style.left = `${left}px`;
+    // Store classify sensitivity for the panel header
+    if (state?.sensitivity) {
+      badge.dataset.sensitivity = state.sensitivity;
+    }
+
+    // Remove all state classes
+    badge.classList.remove(
+      'ps-badge-idle', 'ps-badge-scanning', 'ps-badge-pending',
+      'ps-badge-protected', 'ps-badge-fallback'
+    );
+
+    const countEl = badge.querySelector('.ps-badge-count');
+
+    if (analyzing) {
+      badge.classList.add('ps-badge-scanning');
+      badge.title = 'AI-Safe Plugin — scanning';
+      countEl.textContent = '';
+    } else if (unredacted.length > 0) {
+      badge.classList.add('ps-badge-pending');
+      const displayCount = unredacted.length > 9 ? '9+' : String(unredacted.length);
+      countEl.textContent = displayCount;
+      badge.title = `${unredacted.length} item${unredacted.length === 1 ? '' : 's'} need attention`;
+      // Ensure badge is visible when pending
+      badge.classList.add('ps-badge-visible');
+      // Cancel any pending blur-hide timer since there are pending items
+      const blurTimer = this.badgeBlurTimers.get(element);
+      if (blurTimer) {
+        clearTimeout(blurTimer);
+        this.badgeBlurTimers.delete(element);
+      }
+    } else if (allRedacted) {
+      badge.classList.add('ps-badge-protected');
+      countEl.textContent = '';
+      badge.title = 'All items protected';
+      // Protected state is always visible (user just acted, keep feedback visible)
+      badge.classList.add('ps-badge-visible');
+    } else if (this.modelOffline) {
+      badge.classList.add('ps-badge-idle', 'ps-badge-fallback');
+      countEl.textContent = '';
+      badge.title = 'AI-Safe Plugin — regex-only mode';
+    } else {
+      badge.classList.add('ps-badge-idle');
+      countEl.textContent = '';
+      badge.title = 'AI-Safe Plugin';
+    }
+
+    // Offline is a modifier on top of the other states: keep the dot visible
+    // while scanning/pending/protected so regex-only mode stays discoverable.
+    if (this.modelOffline) badge.classList.add('ps-badge-fallback');
+
+    // Mirror the per-state tooltip into the accessible name (U8).
+    badge.setAttribute('aria-label', badge.title || 'AI-Safe Plugin');
   }
 
-  repositionScanningPills() {
-    this.scanningPills.forEach((pill, element) => {
-      if (!element?.isConnected || !pill?.isConnected) {
-        pill?.remove?.();
-        this.scanningPills.delete(element);
+  positionFieldBadge(element, badge) {
+    if (!element?.isConnected || !badge) return;
+
+    const rect = element.getBoundingClientRect();
+    const clipRect = this.getOverlayClipRect(element);
+
+    if (rect.width < 80 || rect.height < 28) {
+      badge.style.display = 'none';
+      return;
+    }
+    badge.style.display = '';
+
+    const badgeSize = 30;
+    const inset = 8;
+
+    // Bottom-right of field, inset 8px
+    let top = rect.bottom - badgeSize - inset;
+    let left = rect.right - badgeSize - inset;
+
+    // Clamp to clip rect (for internal-scroll editors)
+    if (clipRect) {
+      top = Math.max(clipRect.top + inset, Math.min(clipRect.bottom - badgeSize - inset, top));
+      left = Math.max(clipRect.left + inset, Math.min(clipRect.right - badgeSize - inset, left));
+      // If the badge is completely outside the clip rect, hide it
+      if (top + badgeSize < clipRect.top || top > clipRect.bottom ||
+          left + badgeSize < clipRect.left || left > clipRect.right) {
+        badge.style.display = 'none';
         return;
       }
-      this.positionScanningPill(element, pill);
+    }
+
+    badge.style.top = `${top}px`;
+    badge.style.left = `${left}px`;
+  }
+
+  repositionFieldBadges() {
+    this.fieldBadges.forEach((badge, element) => {
+      if (!element?.isConnected || !badge?.isConnected) {
+        badge?.remove?.();
+        this.fieldBadges.delete(element);
+        return;
+      }
+      this.positionFieldBadge(element, badge);
+    });
+    // Also reposition any open panel
+    this.fieldPanels.forEach((panel, element) => {
+      if (!element?.isConnected || !panel?.isConnected) {
+        panel?.remove?.();
+        this.fieldPanels.delete(element);
+        return;
+      }
+      // Close the panel when its badge has been clipped out of view
+      // (field scrolled beyond the editor's internal clip rect).
+      const badge = this.fieldBadges.get(element);
+      if (badge && badge.style.display === 'none') {
+        this.hideFieldPanel(element);
+        return;
+      }
+      this.positionFieldPanel(element, panel);
     });
   }
 
-  updateScanningPillWithSensitivity(element, { sensitivity, score }) {
-    if (!sensitivity || sensitivity === 'none' || sensitivity === 'low') return;
-    const pill = this.scanningPills.get(element);
-    if (!pill) return;
-    const colors = { high: '#dc2626', medium: '#d97706' };
-    const labels = { high: 'High Risk', medium: 'Moderate Risk' };
-    const color = colors[sensitivity];
-    const label = labels[sensitivity];
-    if (!color) return;
-    let badge = pill.querySelector('.ps-sensitivity-badge');
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'ps-sensitivity-badge';
-      badge.style.cssText = `
-        display:inline-block;padding:1px 6px;border-radius:999px;
-        font-size:9px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;
-        margin-left:4px;
-      `;
-      pill.appendChild(badge);
+  hideFieldBadge(element) {
+    const badge = this.fieldBadges.get(element);
+    if (!badge) return;
+
+    // Cancel any pending blur timer
+    const blurTimer = this.badgeBlurTimers.get(element);
+    if (blurTimer) {
+      clearTimeout(blurTimer);
+      this.badgeBlurTimers.delete(element);
     }
-    badge.textContent = label;
-    badge.style.setProperty('color', '#fff');
-    badge.style.setProperty('background', color);
+
+    badge.classList.remove('ps-badge-visible');
+    const hideTimer = setTimeout(() => {
+      badge.remove();
+      this.fieldBadges.delete(element);
+    }, 200);
+    badge._hideTimer = hideTimer;
   }
 
-  hideScanningPill(element) {
-    const pill = this.scanningPills.get(element);
-    if (!pill) return;
-    pill.classList.remove('ps-scanning-pill-visible');
-    pill.psHideTimer = setTimeout(() => {
-      pill.remove();
-      this.scanningPills.delete(element);
-      pill.psHideTimer = null;
-    }, 900);
+  scheduleFieldBadgeBlurHide(element) {
+    // Only hide on blur if state is idle (no pending items)
+    const state = this.redactions.get(element);
+    const items = state?.items || [];
+    const hasPending = items.some((i) => !i.redacted);
+
+    if (hasPending) return; // Pending state stays visible after blur
+
+    const timer = setTimeout(() => {
+      this.badgeBlurTimers.delete(element);
+      const badge = this.fieldBadges.get(element);
+      if (!badge) return;
+      badge.classList.remove('ps-badge-visible');
+    }, 2000);
+    this.badgeBlurTimers.set(element, timer);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // Field Panel
+  // ═══════════════════════════════════════════════════════════
+
+  toggleFieldPanel(element, viaKeyboard = false) {
+    const existing = this.fieldPanels.get(element);
+    if (existing) {
+      this.hideFieldPanel(element);
+    } else {
+      this.showFieldPanel(element, viaKeyboard);
+    }
+  }
+
+  showFieldPanel(element, viaKeyboard = false) {
+    this.hideFieldPanel(element);
+    const state = this.redactions.get(element);
+    if (!state || !state.items || state.items.length === 0) return;
+
+    const panel = document.createElement('div');
+    panel.className = 'ps-field-panel';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-label', 'AI-Safe Plugin detections');
+
+    // ── Header ──
+    const header = document.createElement('div');
+    header.className = 'ps-panel-header';
+
+    const title = document.createElement('span');
+    title.className = 'ps-panel-title';
+    title.textContent = `AI-Safe Plugin · ${state.items.length} item${state.items.length === 1 ? '' : 's'}`;
+    header.appendChild(title);
+
+    // Risk chip (sourced from stored sensitivity)
+    const badge = this.fieldBadges.get(element);
+    const sensitivity = badge?.dataset?.sensitivity || state.sensitivity;
+    if (sensitivity === 'high' || sensitivity === 'medium') {
+      const chip = document.createElement('span');
+      chip.className = 'ps-panel-risk-chip';
+      if (sensitivity === 'high') {
+        chip.classList.add('ps-panel-risk-high');
+        chip.textContent = 'High risk';
+      } else {
+        chip.classList.add('ps-panel-risk-moderate');
+        chip.textContent = 'Moderate risk';
+      }
+      header.appendChild(chip);
+    }
+
+    panel.appendChild(header);
+
+    // ── Item rows ──
+    const itemList = document.createElement('div');
+    itemList.className = 'ps-panel-items';
+
+    state.items.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'ps-panel-row';
+      row.style.setProperty('--row-color', this.getTypeColor(item.label));
+
+      const dot = document.createElement('span');
+      dot.className = 'ps-panel-dot';
+      row.appendChild(dot);
+
+      const labelEl = document.createElement('span');
+      labelEl.className = 'ps-panel-row-label';
+      labelEl.textContent = this.formatLabel(item.label);
+      row.appendChild(labelEl);
+
+      const valueEl = document.createElement('span');
+      valueEl.className = 'ps-panel-row-value';
+      valueEl.textContent = this._middleTruncate(String(item.text || ''), 28);
+      row.appendChild(valueEl);
+
+      const actions = document.createElement('span');
+      actions.className = 'ps-panel-row-actions';
+
+      // Dismiss button
+      const dismissBtn = document.createElement('button');
+      dismissBtn.type = 'button';
+      dismissBtn.className = 'ps-panel-row-btn';
+      dismissBtn.title = 'Dismiss';
+      dismissBtn.setAttribute('aria-label', `Dismiss ${this.formatLabel(item.label)}`);
+      const dismissSvg = this._buildDismissSvg();
+      dismissBtn.appendChild(dismissSvg);
+      dismissBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.dismissDetection(element, index);
+        this.hideFieldPanel(element);
+        const newState = this.redactions.get(element);
+        if (newState && newState.items.length > 0) {
+          this.showFieldPanel(element);
+        }
+      });
+      actions.appendChild(dismissBtn);
+
+      // Redact / restore toggle button
+      const redactBtn = document.createElement('button');
+      redactBtn.type = 'button';
+      redactBtn.className = 'ps-panel-row-btn';
+      if (item.redacted) {
+        redactBtn.title = 'Restore';
+        redactBtn.setAttribute('aria-label', `Restore ${this.formatLabel(item.label)}`);
+        const restoreSvg = this._buildRestoreSvg();
+        redactBtn.appendChild(restoreSvg);
+        redactBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.toggleRedaction(element, index);
+          this.hideFieldPanel(element);
+          this.showFieldPanel(element);
+        });
+      } else {
+        redactBtn.title = 'Redact';
+        redactBtn.setAttribute('aria-label', `Redact ${this.formatLabel(item.label)}`);
+        const redactSvg = this._buildRedactSvg();
+        redactBtn.appendChild(redactSvg);
+        redactBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.redactSingle(element, index);
+          this.hideFieldPanel(element);
+          this.showFieldPanel(element);
+        });
+      }
+      actions.appendChild(redactBtn);
+
+      // Ignore on this site — omitted for high-risk labels (U3).
+      if (!item.redacted && this.canIgnoreLabel(item.label)) {
+        const ignoreBtn = document.createElement('button');
+        ignoreBtn.type = 'button';
+        ignoreBtn.className = 'ps-panel-row-btn';
+        ignoreBtn.title = 'Ignore on this site';
+        ignoreBtn.setAttribute('aria-label', `Ignore ${this.formatLabel(item.label)} on this site`);
+        ignoreBtn.appendChild(this._buildIgnoreSvg());
+        ignoreBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.ignoreDetectionValue(element, index);
+          this.hideFieldPanel(element);
+          const newState = this.redactions.get(element);
+          if (newState && newState.items.length > 0) this.showFieldPanel(element);
+        });
+        actions.appendChild(ignoreBtn);
+      }
+
+      row.appendChild(actions);
+      itemList.appendChild(row);
+    });
+
+    panel.appendChild(itemList);
+
+    // ── Divider ──
+    const divider = document.createElement('hr');
+    divider.className = 'ps-panel-divider';
+    panel.appendChild(divider);
+
+    // ── Footer ──
+    const footer = document.createElement('div');
+    footer.className = 'ps-panel-footer';
+
+    const unredacted = state.items.filter((i) => !i.redacted);
+    const redacted = state.items.filter((i) => i.redacted);
+
+    if (unredacted.length > 0) {
+      const redactAllBtn = document.createElement('button');
+      redactAllBtn.type = 'button';
+      redactAllBtn.className = 'ps-panel-btn ps-panel-btn-redact';
+      redactAllBtn.textContent = 'Redact all';
+      redactAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.cancelAutoRedact(element);
+        this.redactAll(element);
+        this.hideFieldPanel(element);
+        const newState = this.redactions.get(element);
+        if (newState && newState.items.length > 0) {
+          this.showFieldPanel(element);
+        }
+      });
+      footer.appendChild(redactAllBtn);
+    }
+
+    if (redacted.length > 0) {
+      const restoreAllBtn = document.createElement('button');
+      restoreAllBtn.type = 'button';
+      restoreAllBtn.className = 'ps-panel-btn ps-panel-btn-restore';
+      restoreAllBtn.textContent = 'Restore all';
+      restoreAllBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.restoreAll(element);
+        this.hideFieldPanel(element);
+        const newState = this.redactions.get(element);
+        if (newState && newState.items.length > 0) {
+          this.showFieldPanel(element);
+        }
+      });
+      footer.appendChild(restoreAllBtn);
+    }
+
+    panel.appendChild(footer);
+
+    document.body.appendChild(panel);
+    this.fieldPanels.set(element, panel);
+
+    this.positionFieldPanel(element, panel);
+    requestAnimationFrame(() => panel.classList.add('ps-panel-visible'));
+
+    // Close on outside click
+    const outsideClickHandler = (e) => {
+      const badge = this.fieldBadges.get(element);
+      if (!panel.contains(e.target) && e.target !== badge && !badge?.contains(e.target)) {
+        this.hideFieldPanel(element);
+        document.removeEventListener('mousedown', outsideClickHandler, true);
+      }
+    };
+    document.addEventListener('mousedown', outsideClickHandler, true);
+    panel._outsideClickHandler = outsideClickHandler;
+
+    // Close on Escape
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        this.hideFieldPanel(element);
+        document.removeEventListener('keydown', escHandler, true);
+      }
+    };
+    document.addEventListener('keydown', escHandler, true);
+    panel._escHandler = escHandler;
+
+    // ── Focus management (U8) ──
+    // Trap Tab within the panel while it's open.
+    panel.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab') return;
+      const focusables = panel.querySelectorAll('button');
+      if (!focusables.length) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+    // Only pull focus into the panel when it was opened from the keyboard — a
+    // mouse click must not yank focus out of the text field the user is typing in.
+    if (viaKeyboard) {
+      panel._returnFocus = this.fieldBadges.get(element) || null;
+      requestAnimationFrame(() => panel.querySelector('button')?.focus());
+    }
+
+    // Hide token tray while panel is open
+    const tray = this.tokenTrays.get(element);
+    if (tray) tray.style.display = 'none';
+  }
+
+  positionFieldPanel(element, panel) {
+    if (!element?.isConnected || !panel?.isConnected) return;
+    const rect = element.getBoundingClientRect();
+    const panelH = panel.offsetHeight || 180;
+    const panelW = panel.offsetWidth || 240;
+    const spaceBelow = window.innerHeight - rect.bottom;
+
+    let top;
+    if (spaceBelow >= panelH + 8) {
+      top = rect.bottom + 6;
+    } else {
+      // Flip above
+      top = rect.top - panelH - 6;
+    }
+
+    let left = rect.left;
+    const maxLeft = window.innerWidth - panelW - 8;
+    if (left > maxLeft) left = Math.max(8, maxLeft);
+
+    panel.style.top = `${top}px`;
+    panel.style.left = `${left}px`;
+  }
+
+  hideFieldPanel(element) {
+    const panel = this.fieldPanels.get(element);
+    if (!panel) return;
+
+    if (panel._outsideClickHandler) {
+      document.removeEventListener('mousedown', panel._outsideClickHandler, true);
+      panel._outsideClickHandler = null;
+    }
+    if (panel._escHandler) {
+      document.removeEventListener('keydown', panel._escHandler, true);
+      panel._escHandler = null;
+    }
+
+    panel.classList.remove('ps-panel-visible');
+    setTimeout(() => {
+      if (panel.isConnected) panel.remove();
+    }, 200);
+    this.fieldPanels.delete(element);
+
+    // Return focus to the badge when the panel was opened from the keyboard (U8).
+    const returnTarget = panel._returnFocus;
+    panel._returnFocus = null;
+    if (returnTarget && typeof returnTarget.focus === 'function') returnTarget.focus();
+
+    // Restore token tray visibility
+    const tray = this.tokenTrays.get(element);
+    if (tray) tray.style.display = '';
+  }
+
+  // Inline SVG helpers for panel row buttons
+  _buildDismissSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    const l1 = document.createElementNS(ns, 'line');
+    l1.setAttribute('x1', '2'); l1.setAttribute('y1', '2');
+    l1.setAttribute('x2', '10'); l1.setAttribute('y2', '10');
+    const l2 = document.createElementNS(ns, 'line');
+    l2.setAttribute('x1', '10'); l2.setAttribute('y1', '2');
+    l2.setAttribute('x2', '2'); l2.setAttribute('y2', '10');
+    svg.appendChild(l1);
+    svg.appendChild(l2);
+    return svg;
+  }
+
+  _buildRedactSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('aria-hidden', 'true');
+    // Shield icon
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M6 1 L10.5 3 L10.5 6.5 Q10.5 9.5 6 11 Q1.5 9.5 1.5 6.5 L1.5 3 Z');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  _buildIgnoreSvg() {
+    // Crossed-eye "ignore/hide" glyph.
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.3');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    const eye = document.createElementNS(ns, 'path');
+    eye.setAttribute('d', 'M1.5 6 C3 3.5 9 3.5 10.5 6 C9 8.5 3 8.5 1.5 6 Z');
+    svg.appendChild(eye);
+    const slash = document.createElementNS(ns, 'line');
+    slash.setAttribute('x1', '2'); slash.setAttribute('y1', '10');
+    slash.setAttribute('x2', '10'); slash.setAttribute('y2', '2');
+    svg.appendChild(slash);
+    return svg;
+  }
+
+  _buildRestoreSvg() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 12 12');
+    svg.setAttribute('width', '12');
+    svg.setAttribute('height', '12');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    // Undo arrow
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M2 5.5 A4 4 0 1 1 3.5 9');
+    svg.appendChild(path);
+    const line = document.createElementNS(ns, 'polyline');
+    line.setAttribute('points', '2,3 2,6 5,6');
+    svg.appendChild(line);
+    return svg;
+  }
+
+  _middleTruncate(text, maxLen) {
+    if (!text || text.length <= maxLen) return text;
+    const half = Math.floor(maxLen / 2) - 1;
+    return `${text.slice(0, half)}…${text.slice(text.length - half)}`;
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -1132,7 +1910,9 @@ class VeilContentController {
       return false;
     }
 
-    const detections = response.detections.filter((item) => !this.isSyntheticReplacementToken(item.text));
+    const detections = response.detections
+      .filter((item) => !this.isSyntheticReplacementToken(item.text))
+      .filter((item) => !this.isValueIgnored(item.label, item.text)); // per-site ignore (U3)
     if (detections.length === 0) return false;
 
     const ledger = this.getAliasLedger(element);
@@ -1189,14 +1969,26 @@ class VeilContentController {
     }
 
     this.setAnalyzingState(element, true);
-    this.showScanningPill(element);
+    this.showFieldBadge(element);
+    this.updateFieldBadge(element, this.redactions.get(element));
     const useFastProtection = this.shouldUseFastProtection(reason, sourceText);
     let fastProtectionApplied = false;
 
     if (sourceText.length >= 20 && sourceText.length < FAST_PROTECTION_MIN_CHARS) {
       chrome.runtime.sendMessage({ action: 'classifyPII', text: sourceText }, (res) => {
         if (chrome.runtime.lastError) return;
-        if (res?.success && res.result) this.updateScanningPillWithSensitivity(element, res.result);
+        if (res?.success && res.result) {
+          // Store sensitivity on the badge for the panel header
+          const badge = this.fieldBadges.get(element);
+          if (badge && res.result.sensitivity) {
+            badge.dataset.sensitivity = res.result.sensitivity;
+          }
+          // Also store on state if it exists
+          const st = this.redactions.get(element);
+          if (st && res.result.sensitivity) {
+            st.sensitivity = res.result.sensitivity;
+          }
+        }
       });
     }
 
@@ -1239,11 +2031,13 @@ class VeilContentController {
 
       let detections = response.detections;
 
-      // ── Dedup: filter out dismissed and already-handled detections ──
+      // ── Dedup: filter out dismissed, ignored, and already-handled detections ──
       const dismissed = this.dismissedDetections.get(element) || new Set();
       detections = detections.filter((d) => {
         const key = `${d.start}:${d.end}:${d.label}`;
-        return !dismissed.has(key);
+        if (dismissed.has(key)) return false;
+        if (this.isValueIgnored(d.label, d.text)) return false; // persistent per-site ignore (U3)
+        return true;
       });
       detections = detections.filter((d) => !this.isSyntheticReplacementToken(d.text));
 
@@ -1306,8 +2100,8 @@ class VeilContentController {
         .sort((a, b) => a.start - b.start);
 
       if (allItems.length === 0) {
-        this.hideScanningPill(element);
         this.setAnalyzingState(element, false);
+        this.updateFieldBadge(element, this.redactions.get(element));
         return;
       }
 
@@ -1316,8 +2110,8 @@ class VeilContentController {
       }));
       const signature = this.buildSignature(sourceText, allDetectionsForSignature);
       if (this.lastDetectionSignature.get(element) === signature) {
-        this.hideScanningPill(element);
         this.setAnalyzingState(element, false);
+        this.updateFieldBadge(element, this.redactions.get(element));
         return;
       }
 
@@ -1347,7 +2141,7 @@ class VeilContentController {
       this.updateStats(newItems.filter((i) => !i.redacted).length, 0);
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
     } catch (error) {
-      console.error('[Veil] detection error:', error);
+      console.error('[AI-Safe Plugin] detection error:', error);
       const staged = this.redactions.get(element);
       if (staged?.pendingRefinement) {
         staged.pendingRefinement = false;
@@ -1358,11 +2152,13 @@ class VeilContentController {
       // Surface model-offline state as a non-blocking notification so users know
       // regex fallback is active rather than silently getting degraded detection.
       if (/failed to fetch|networkerror|connection refused|econnrefused/i.test(String(error?.message || ''))) {
+        this.modelOffline = true;
         this.showNotification('Model offline — regex fallback active', 'warning');
       }
     } finally {
-      this.hideScanningPill(element);
       this.setAnalyzingState(element, false);
+      const finalState = this.redactions.get(element);
+      this.updateFieldBadge(element, finalState);
     }
   }
 
@@ -1599,7 +2395,7 @@ class VeilContentController {
    */
   detectNativeNewlineStyle(element) {
     const hostname = window.location.hostname.toLowerCase();
-    if (hostname.includes('gemini') || hostname.includes('bard.google')) return 'p';
+    if (hostMatchesSite(hostname, 'gemini.google.com') || hostMatchesSite(hostname, 'bard.google.com')) return 'p';
 
     let pCount = 0;
     for (const child of element.childNodes) {
@@ -1776,6 +2572,7 @@ class VeilContentController {
         item.reviewed = true;
         changed = true;
         count += 1;
+        this._recordRedactionStat(item.label);
       }
     });
 
@@ -1794,9 +2591,47 @@ class VeilContentController {
       this.siteRedactCount += 1;
       chrome.storage.local.set({ [this.getSiteRedactCountKey()]: this.siteRedactCount });
       if (this.siteRedactCount === 3 && !this.settings.autoRedact) {
-        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in Veil settings to do this automatically.', 'info'), 1200);
+        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in AI-Safe Plugin settings to do this automatically.', 'info'), 1200);
       }
     }
+  }
+
+  getCommandRedactTarget() {
+    const focused = Array.from(this.focusedElements).find((element) => (
+      this.monitoredElements.has(element) && this.redactions.has(element)
+    ));
+    if (focused) return focused;
+
+    for (const [element, state] of this.redactions.entries()) {
+      if (!this.monitoredElements.has(element)) continue;
+      if (!state?.items?.some((item) => item && !item.redacted)) continue;
+      return element;
+    }
+    return null;
+  }
+
+  handleCommandRedactAll() {
+    const target = this.getCommandRedactTarget();
+    if (!target) return { success: false, error: 'No pending detections.' };
+    this.redactAll(target);
+    return { success: true };
+  }
+
+  async handleCommandToggleSite() {
+    const host = normalizeSiteHost(window.location.hostname);
+    if (!host) return { success: false, error: 'No host for this page.' };
+
+    const result = await new Promise((resolve) => chrome.storage.local.get('excludedSites', resolve));
+    const sites = Array.isArray(result.excludedSites)
+      ? [...new Set(result.excludedSites.map((site) => normalizeSiteHost(site)).filter(Boolean))]
+      : [];
+    const currentlyExcluded = sites.includes(host);
+    const excludedSites = currentlyExcluded
+      ? sites.filter((site) => site !== host)
+      : [...sites, host];
+
+    await new Promise((resolve) => chrome.storage.local.set({ excludedSites }, resolve));
+    return { success: true, enabled: currentlyExcluded, excludedSites };
   }
 
   restoreAll(element) {
@@ -1820,6 +2655,9 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   renderElement(element, flashIndex = -1) {
+    // Reflect the latest page-wide counts on the toolbar icon (U1). Fired here
+    // because every state change (detect/redact/dismiss/restore/ignore) renders.
+    this.scheduleToolbarStatsPush();
     const state = this.redactions.get(element);
     if (!state) return;
 
@@ -1859,6 +2697,8 @@ class VeilContentController {
       // fixed-position highlights instead so visuals survive without touching the editor DOM.
       this._scheduleOverlayUpdate(element);
       this.scheduleAssistantResponseRestore('render');
+      // Update badge after render
+      this.updateFieldBadge(element, state);
       return;
     }
 
@@ -1880,7 +2720,11 @@ class VeilContentController {
     if (state.items.some((i) => i.redacted)) {
       this.playCommitAnimation(element);
     }
-    this.renderTokenTray(element, state);
+    // Token tray only renders while the panel is closed
+    if (!this.fieldPanels.has(element)) {
+      this.renderTokenTray(element, state);
+    }
+    this.updateFieldBadge(element, state);
     this.scheduleAssistantResponseRestore('render');
   }
 
@@ -2232,6 +3076,9 @@ class VeilContentController {
             typographySource: span,
           });
         }
+      } else {
+        // Pre-redaction underline → show the explanatory popover (U2).
+        this.beginPopoverHover({ element, itemIndex: index, anchorRect });
       }
     });
 
@@ -2241,7 +3088,14 @@ class VeilContentController {
       // Skip if the pointer is still within the same span (moving between child nodes)
       if (span.contains(event.relatedTarget)) return;
       const index = parseInt(span.getAttribute('data-index'), 10);
-      if (this.shouldKeepRevealOpen(event.relatedTarget, element, Number.isNaN(index) ? null : index)) return;
+      const idx = Number.isNaN(index) ? null : index;
+      if (span.classList.contains('ps-pii-underline')) {
+        // Pre-redaction underline → close the popover unless the pointer moved onto it.
+        this.cancelPopoverOpen();
+        if (!this.shouldKeepPopoverOpen(event.relatedTarget, element, idx)) this.schedulePopoverHide();
+        return;
+      }
+      if (this.shouldKeepRevealOpen(event.relatedTarget, element, idx)) return;
       this.scheduleRevealHide();
     });
   }
@@ -2367,16 +3221,226 @@ class VeilContentController {
   // Popover (per-span anchored tooltip – Grammarly-style)
   // ═══════════════════════════════════════════════════════════
 
-  // anchorRect: pre-captured getBoundingClientRect() from the hover event.
-  // Passing it avoids relying on the span still being in the DOM by the time
-  // requestAnimationFrame fires (rich editors may reconcile in between).
-  // Popover removed — actions (redact/restore) are accessible via token tray chips and
-  // the inline click handler on detection spans. showPopover is kept as a no-op so any
-  // remaining call sites are safe.
-  // eslint-disable-next-line no-unused-vars
-  showPopover(_anchorSpan, _element, _index, _mode, _anchorRect = null) {}
+  // anchorRect is captured synchronously from the hover event so positioning does
+  // not depend on the underline span still being in the DOM when rAF fires (rich
+  // editors may reconcile in between) — same strategy as the reveal overlay.
+  beginPopoverHover({ element, itemIndex, anchorRect }) {
+    const item = this.redactions.get(element)?.items?.[itemIndex];
+    if (!item || item.redacted) return;  // popover is for pre-redaction underlines only
+
+    this.cancelPopoverClose();
+    this.cancelPopoverOpen();
+
+    const show = () => {
+      const current = this.redactions.get(element)?.items?.[itemIndex];
+      if (!current || current.redacted) {
+        this.hidePopover();
+        return;
+      }
+      this.activePopoverState = { element, itemIndex, anchorRect };
+      this.showPopover(element, itemIndex, anchorRect);
+    };
+
+    if (this.activePopoverState?.element === element && this.activePopoverState?.itemIndex === itemIndex) {
+      show();
+      return;
+    }
+    this.popoverOpenTimer = setTimeout(() => {
+      this.popoverOpenTimer = 0;
+      show();
+    }, 250);
+  }
+
+  showPopover(element, itemIndex, anchorRect) {
+    if (!anchorRect) return;
+    const item = this.redactions.get(element)?.items?.[itemIndex];
+    if (!item || item.redacted) return;
+
+    let card = this.activePopover;
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'ps-popover';
+      card.setAttribute('role', 'dialog');
+      card.setAttribute('aria-label', 'AI-Safe Plugin detection');
+      card.addEventListener('mouseenter', () => this.cancelPopoverClose());
+      card.addEventListener('mouseleave', (event) => {
+        const st = this.activePopoverState;
+        if (st && this.shouldKeepPopoverOpen(event.relatedTarget, st.element, st.itemIndex)) return;
+        this.schedulePopoverHide();
+      });
+      document.body.appendChild(card);
+      this.activePopover = card;
+      // Close on Escape while the card is open.
+      this._popoverKeydown = (event) => { if (event.key === 'Escape') this.hidePopover(); };
+      document.addEventListener('keydown', this._popoverKeydown, true);
+    } else if (!card.isConnected) {
+      document.body.appendChild(card);
+    }
+
+    card.textContent = '';
+    card.style.setProperty('--detection-color', this.getTypeColor(item.label));
+
+    // Header: colored dot + human label + confidence-tier chip.
+    const header = document.createElement('div');
+    header.className = 'ps-popover-header';
+    const dot = document.createElement('span');
+    dot.className = 'ps-popover-dot';
+    header.appendChild(dot);
+    const title = document.createElement('span');
+    title.className = 'ps-popover-title';
+    title.textContent = this.formatLabel(item.label);
+    header.appendChild(title);
+    const tier = String(item.tier || '').toLowerCase();
+    if (tier === 'high' || tier === 'medium' || tier === 'low') {
+      const chip = document.createElement('span');
+      chip.className = `ps-popover-tier ps-popover-tier-${tier}`;
+      chip.textContent = `${tier} confidence`;
+      header.appendChild(chip);
+    }
+    card.appendChild(header);
+
+    // Explanation line.
+    const text = document.createElement('div');
+    text.className = 'ps-popover-text';
+    text.textContent = LABEL_EXPLANATIONS[item.label] || LABEL_EXPLANATION_FALLBACK;
+    card.appendChild(text);
+
+    // Actions: Redact (primary) + Dismiss. (U3 adds "Ignore on this site".)
+    const actions = document.createElement('div');
+    actions.className = 'ps-popover-actions';
+
+    const redactBtn = document.createElement('button');
+    redactBtn.type = 'button';
+    redactBtn.className = 'ps-popover-btn ps-popover-btn-primary';
+    redactBtn.textContent = 'Redact';
+    redactBtn.setAttribute('aria-label', `Redact ${this.formatLabel(item.label)}`);
+    redactBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.redactSingle(element, itemIndex);
+      this.hidePopover();
+    });
+    actions.appendChild(redactBtn);
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.type = 'button';
+    dismissBtn.className = 'ps-popover-btn ps-popover-btn-dismiss';
+    dismissBtn.textContent = 'Dismiss';
+    dismissBtn.setAttribute('aria-label', `Dismiss ${this.formatLabel(item.label)}`);
+    dismissBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.dismissDetection(element, itemIndex);
+      this.hidePopover();
+    });
+    actions.appendChild(dismissBtn);
+
+    // Ignore on this site — omitted for high-risk labels (U3).
+    if (this.canIgnoreLabel(item.label)) {
+      const ignoreBtn = document.createElement('button');
+      ignoreBtn.type = 'button';
+      ignoreBtn.className = 'ps-popover-btn ps-popover-btn-dismiss';
+      ignoreBtn.textContent = 'Ignore here';
+      ignoreBtn.setAttribute('aria-label', `Ignore ${this.formatLabel(item.label)} on this site`);
+      ignoreBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.ignoreDetectionValue(element, itemIndex);
+        this.hidePopover();
+      });
+      actions.appendChild(ignoreBtn);
+    }
+
+    card.appendChild(actions);
+
+    this.positionPopover(anchorRect);
+    requestAnimationFrame(() => {
+      if (this.activePopover === card) card.classList.add('ps-popover-visible');
+    });
+  }
+
+  positionPopover(anchorRect) {
+    const card = this.activePopover;
+    if (!card || !anchorRect) return;
+    const margin = 12;
+    const spacing = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const w = card.offsetWidth || 1;
+    const h = card.offsetHeight || 1;
+
+    let left = anchorRect.left + (anchorRect.width / 2) - (w / 2);
+    left = Math.max(margin, Math.min(left, vw - w - margin));
+
+    // Prefer below the underline (Grammarly-style); flip above when there's no room.
+    let top = anchorRect.bottom + spacing;
+    if (top + h > vh - margin) top = anchorRect.top - h - spacing;
+    top = Math.max(margin, Math.min(top, vh - h - margin));
+
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top = `${Math.round(top)}px`;
+  }
+
+  refreshPopoverPosition() {
+    const st = this.activePopoverState;
+    if (!st || !this.activePopover) return;
+    const item = this.redactions.get(st.element)?.items?.[st.itemIndex];
+    if (!item || item.redacted) {
+      this.hidePopover();
+      return;
+    }
+    const rect = this.getRevealAnchorRect(st.element, st.itemIndex);
+    if (!rect || rect.width === 0 || rect.height === 0) {
+      this.hidePopover();
+      return;
+    }
+    st.anchorRect = rect;
+    this.positionPopover(rect);
+  }
+
+  cancelPopoverOpen() {
+    if (this.popoverOpenTimer) {
+      clearTimeout(this.popoverOpenTimer);
+      this.popoverOpenTimer = 0;
+    }
+  }
+
+  cancelPopoverClose() {
+    if (this.popoverHideTimer) {
+      clearTimeout(this.popoverHideTimer);
+      this.popoverHideTimer = 0;
+    }
+  }
+
+  schedulePopoverHide(delay = 150) {
+    this.cancelPopoverOpen();
+    this.cancelPopoverClose();
+    this.popoverHideTimer = setTimeout(() => {
+      this.popoverHideTimer = 0;
+      this.hidePopover();
+    }, delay);
+  }
+
+  shouldKeepPopoverOpen(target, element, itemIndex) {
+    if (!target) return false;
+    if (this.activePopover?.contains?.(target)) return true;
+    if (!(target instanceof Element)) return false;
+    if (itemIndex != null) {
+      // Overlay-highlight (hostile editors) lives on document.body, not inside element.
+      if (target.closest(`.ps-overlay-hl[data-item-index="${itemIndex}"]`)) return true;
+      if (element?.contains?.(target) && target.closest(`.ps-pii-underline[data-index="${itemIndex}"]`)) return true;
+    }
+    return false;
+  }
 
   hidePopover() {
+    this.cancelPopoverOpen();
+    this.cancelPopoverClose();
+    this.activePopoverState = null;
+    if (this._popoverKeydown) {
+      document.removeEventListener('keydown', this._popoverKeydown, true);
+      this._popoverKeydown = null;
+    }
     if (!this.activePopover) return;
     this.activePopover.classList.remove('ps-popover-visible');
     const old = this.activePopover;
@@ -2711,17 +3775,31 @@ class VeilContentController {
     hl.addEventListener('mouseenter', () => {
       const index = Number(hl.dataset.itemIndex);
       if (!Number.isInteger(index)) return;
-      this.beginRevealHover({
-        element,
-        itemIndex: index,
-        anchorRect: hl.getBoundingClientRect(),
-        typographySource: element,
-        anchorKey: hl.dataset.overlayKey || null,
-      });
+      const anchorRect = hl.getBoundingClientRect();
+      const item = this.redactions.get(element)?.items?.[index];
+      if (item && !item.redacted) {
+        // Pre-redaction highlight → explanatory popover (U2).
+        this.beginPopoverHover({ element, itemIndex: index, anchorRect });
+      } else {
+        this.beginRevealHover({
+          element,
+          itemIndex: index,
+          anchorRect,
+          typographySource: element,
+          anchorKey: hl.dataset.overlayKey || null,
+        });
+      }
     });
     hl.addEventListener('mouseleave', (event) => {
       const index = Number(hl.dataset.itemIndex);
-      if (this.shouldKeepRevealOpen(event.relatedTarget, element, Number.isInteger(index) ? index : null)) {
+      const idx = Number.isInteger(index) ? index : null;
+      const item = idx != null ? this.redactions.get(element)?.items?.[idx] : null;
+      if (item && !item.redacted) {
+        this.cancelPopoverOpen();
+        if (!this.shouldKeepPopoverOpen(event.relatedTarget, element, idx)) this.schedulePopoverHide();
+        return;
+      }
+      if (this.shouldKeepRevealOpen(event.relatedTarget, element, idx)) {
         return;
       }
       this.scheduleRevealHide();
@@ -2794,103 +3872,6 @@ class VeilContentController {
     return null;
   }
 
-  schedulePopoverHide() {
-    this.cancelPopoverHide();
-    this.activePopoverHideTimer = setTimeout(() => this.hidePopover(), 280);
-  }
-
-  cancelPopoverHide() {
-    if (this.activePopoverHideTimer) {
-      clearTimeout(this.activePopoverHideTimer);
-      this.activePopoverHideTimer = null;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // Action Bar (Redact All / Restore All near the field)
-  // ═══════════════════════════════════════════════════════════
-
-  showActionBar(element, state) {
-    this.removeActionBar(element);
-
-    const unredactedCount = state.items.filter((i) => !i.redacted).length;
-    const redactedCount = state.items.filter((i) => i.redacted).length;
-    if (unredactedCount === 0 && redactedCount === 0) return;
-
-    const bar = document.createElement('div');
-    bar.className = 'ps-action-bar';
-
-    const countLabel = document.createElement('span');
-    countLabel.className = 'ps-action-bar-count';
-    countLabel.textContent = `${state.items.length} PII${state.items.length === 1 ? '' : 's'}`;
-    bar.appendChild(countLabel);
-
-    if (unredactedCount > 0) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ps-action-bar-btn ps-action-bar-btn-redact';
-      btn.textContent = `🛡 Redact All (${unredactedCount})`;
-      btn.addEventListener('click', () => {
-        this.cancelAutoRedact(element);
-        this.redactAll(element);
-      });
-      bar.appendChild(btn);
-    }
-
-    if (redactedCount > 0) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'ps-action-bar-btn ps-action-bar-btn-restore';
-      btn.textContent = `Restore All (${redactedCount})`;
-      btn.addEventListener('click', () => {
-        this.restoreAll(element);
-      });
-      bar.appendChild(btn);
-    }
-
-    document.body.appendChild(bar);
-    this.actionBars.set(element, bar);
-    this.positionActionBar(element, bar);
-    requestAnimationFrame(() => {
-      this.positionActionBar(element, bar);
-      bar.classList.add('ps-action-bar-visible');
-    });
-  }
-
-  removeActionBar(element) {
-    const bar = this.actionBars.get(element);
-    if (!bar) return;
-    bar.remove();
-    this.actionBars.delete(element);
-  }
-
-  positionActionBar(element, bar) {
-    if (!element?.isConnected || !bar?.isConnected) return;
-    const rect = element.getBoundingClientRect();
-    if (rect.width < 48 || rect.height < 18) {
-      bar.remove();
-      this.actionBars.delete(element);
-      return;
-    }
-    bar.style.top = `${window.scrollY + rect.bottom + 6}px`;
-    bar.style.left = `${window.scrollX + rect.left}px`;
-    const maxLeft = window.scrollX + window.innerWidth - bar.offsetWidth - 8;
-    if (parseFloat(bar.style.left) > maxLeft) {
-      bar.style.left = `${Math.max(8, maxLeft)}px`;
-    }
-  }
-
-  repositionActionBars() {
-    this.actionBars.forEach((bar, element) => {
-      if (!element?.isConnected || !bar?.isConnected) {
-        bar?.remove?.();
-        this.actionBars.delete(element);
-        return;
-      }
-      this.positionActionBar(element, bar);
-    });
-  }
-
   // ═══════════════════════════════════════════════════════════
   // Single-item Actions
   // ═══════════════════════════════════════════════════════════
@@ -2899,9 +3880,11 @@ class VeilContentController {
     const state = this.redactions.get(element);
     if (!state || !state.items[index]) return;
 
+    const wasRedacted = state.items[index].redacted;
     state.items[index].redacted = true;
     state.items[index].reviewed = true;
     state.items[index].userRestored = false;  // User chose to re-redact
+    if (!wasRedacted) this._recordRedactionStat(state.items[index].label);
 
     this.rememberResponseRestoreMappings(state);
     this.renderElement(element, index);
@@ -2962,6 +3945,7 @@ class VeilContentController {
       this.cancelAutoRedact(element);
     } else {
       this.rememberResponseRestoreMappings(state);
+      this._recordRedactionStat(state.items[index].label);
     }
 
     this.renderElement(element, index);
@@ -2995,6 +3979,8 @@ class VeilContentController {
       chip.style.setProperty('--chip-color', this.getTypeColor(item.label));
       chip.textContent = this.summarizeTokenText(item.text);
       chip.title = item.redacted ? 'Click to restore' : 'Click to re-redact';
+      // Action + type for screen readers (avoid reading the raw value as the name).
+      chip.setAttribute('aria-label', `${item.redacted ? 'Restore' : 'Re-redact'} ${this.formatLabel(item.label)}`);
       chip.addEventListener('click', () => this.toggleRedaction(element, index));
       tray.appendChild(chip);
     });
@@ -3091,7 +4077,7 @@ class VeilContentController {
 
       chrome.storage.local.set({ [key]: payload });
     } catch (e) {
-      console.error('[Veil] cache persist error:', e);
+      console.error('[AI-Safe Plugin] cache persist error:', e);
     }
   }
 
@@ -3112,7 +4098,7 @@ class VeilContentController {
         chrome.storage.local.remove(keysToRemove);
       }
     } catch (e) {
-      console.error('[Veil] cache rehydration error:', e);
+      console.error('[AI-Safe Plugin] cache rehydration error:', e);
     }
   }
 
@@ -3146,8 +4132,8 @@ class VeilContentController {
     this.cancelPostInteractionCleanup(element);
     element.classList.remove('ps-awaiting-idle', 'ps-analyzing', 'ps-redaction-commit');
     this.removeTokenTray(element);
-    this.removeActionBar(element);
-    this.hideScanningPill(element);
+    this.hideFieldPanel(element);
+    this.hideFieldBadge(element);
     this.cancelAutoRedact(element);
 
     // Strip injected PII spans from contenteditable elements to avoid visual artifacts
@@ -3236,6 +4222,38 @@ class VeilContentController {
     };
   }
 
+  // ── Durable privacy stats (U7) ────────────────────────────────────────────
+  // Accumulate redaction counts in memory and flush them (debounced) into
+  // chrome.storage.local under STATS_STORAGE_KEY. Counts only — never the
+  // detected value or the site. A redactAll burst becomes a single write.
+  _recordRedactionStat(label, n = 1) {
+    const inc = Number(n) || 0;
+    if (inc <= 0) return;
+    if (!this._statDeltas) this._statDeltas = { total: 0, byLabel: {} };
+    const key = String(label || 'unknown');
+    this._statDeltas.total += inc;
+    this._statDeltas.byLabel[key] = (this._statDeltas.byLabel[key] || 0) + inc;
+
+    clearTimeout(this._statFlushTimer);
+    this._statFlushTimer = setTimeout(() => this._flushRedactionStats(), 800);
+  }
+
+  _flushRedactionStats() {
+    const deltas = this._statDeltas;
+    if (!deltas || deltas.total <= 0) return;
+    this._statDeltas = { total: 0, byLabel: {} };
+    const weekKey = isoWeekKey();
+    try {
+      chrome.storage.local.get([STATS_STORAGE_KEY], (data) => {
+        let stats = data?.[STATS_STORAGE_KEY];
+        for (const [label, count] of Object.entries(deltas.byLabel)) {
+          stats = mergeRedactionStats(stats, label, weekKey, count);
+        }
+        chrome.storage.local.set({ [STATS_STORAGE_KEY]: stats });
+      });
+    } catch { /* context invalidated — non-fatal */ }
+  }
+
   computeLiveStats() {
     let detections = 0;
     let redactions = 0;
@@ -3254,18 +4272,65 @@ class VeilContentController {
     return { detections, redactions };
   }
 
+  // ── Toolbar-icon badge (U1) ───────────────────────────────────────────────
+  // Push live page counts to the background worker, which renders an amber count
+  // / green check on the extension icon. Throttled to ≤1/sec with a trailing
+  // call; top-frame only (matches getPageStats) so iframes don't fight the badge.
+  scheduleToolbarStatsPush() {
+    if (window !== window.top) return;
+    const now = Date.now();
+    const since = now - this._toolbarStatsLast;
+    if (since >= 1000) {
+      this._toolbarStatsLast = now;
+      this._sendToolbarStats();
+    } else if (!this._toolbarStatsTimer) {
+      this._toolbarStatsTimer = setTimeout(() => {
+        this._toolbarStatsTimer = null;
+        this._toolbarStatsLast = Date.now();
+        this._sendToolbarStats();
+      }, 1000 - since);
+    }
+  }
+
+  _sendToolbarStats() {
+    const { detections, redactions } = this.computeLiveStats();
+    try {
+      chrome.runtime.sendMessage({
+        action: 'aiSafePluginStatsPush',
+        detected: detections,
+        protected: redactions
+      }).catch(() => { /* SW asleep / no receiver — non-fatal */ });
+    } catch { /* context invalidated — non-fatal */ }
+  }
+
   handleRuntimeMessage(request, _sender, sendResponse) {
     if (request?.action === 'serverCrashed') {
-      this.showNotification('⚠ GLiNER2 server offline — using regex fallback.', 'warning');
+      this.modelOffline = true;
+      this.fieldBadges.forEach((_, el) => this.updateFieldBadge(el, this.redactions.get(el)));
+      this.showNotification('GLiNER2 server offline — using regex fallback.', 'warning');
       // Reset detector mode so next detection triggers a re-check
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
       return false;
     }
 
     if (request?.action === 'serverRestored') {
-      this.showNotification('✓ Local model back online — full AI detection active.', 'info');
+      this.modelOffline = false;
+      this.fieldBadges.forEach((_, el) => this.updateFieldBadge(el, this.redactions.get(el)));
+      this.showNotification('Local model back online — full AI detection active.', 'info');
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
       return false;
+    }
+
+    if (request?.action === 'commandRedactAll') {
+      sendResponse(this.handleCommandRedactAll());
+      return false;
+    }
+
+    if (request?.action === 'commandToggleSite') {
+      this.handleCommandToggleSite()
+        .then((response) => sendResponse(response))
+        .catch((error) => sendResponse({ success: false, error: error?.message || 'Toggle failed.' }));
+      return true;
     }
 
     if (request?.action !== 'getPageStats') return false;
@@ -3301,15 +4366,38 @@ class VeilContentController {
 
     chrome.storage.local.set({ [MASK_MODE_HINT_STORAGE_KEY]: true });
     this.showNotification(
-      'Mask mode replaces sensitive text with [TYPE REDACTED] tags. For more natural replacements later, switch to Anonymize in Veil settings.',
+      'Mask mode replaces sensitive text with [TYPE REDACTED] tags. For more natural replacements later, switch to Anonymize in AI-Safe Plugin settings.',
       'info',
       3600
     );
   }
 
+  // Visually-hidden, persistent ARIA live region (U8). Created once; updating its
+  // text makes screen readers announce status changes (e.g. "3 items protected").
+  _ensureAriaLive() {
+    if (this._ariaLive && this._ariaLive.isConnected) return this._ariaLive;
+    const region = document.createElement('div');
+    region.className = 'ps-sr-only';
+    region.setAttribute('role', 'status');
+    region.setAttribute('aria-live', 'polite');
+    document.body.appendChild(region);
+    this._ariaLive = region;
+    return region;
+  }
+
+  announce(message) {
+    const region = this._ensureAriaLive();
+    region.textContent = '';
+    // Re-set on the next frame so repeated identical messages still announce.
+    requestAnimationFrame(() => { region.textContent = String(message || ''); });
+  }
+
   showNotification(message, type = 'info', durationMs = 1900) {
     const toast = document.createElement('div');
     toast.className = `ps-notification ps-notification-${type}`;
+    // The toast is purely visual; the persistent live region does the announcing
+    // (below), so screen readers hear it exactly once.
+    toast.setAttribute('aria-hidden', 'true');
     const inner = document.createElement('div');
     inner.className = 'ps-notification-message';
     inner.textContent = message;
@@ -3317,6 +4405,8 @@ class VeilContentController {
 
     document.body.appendChild(toast);
     requestAnimationFrame(() => toast.classList.add('ps-notification-visible'));
+
+    this.announce(message);
 
     setTimeout(() => {
       toast.classList.remove('ps-notification-visible');
@@ -3329,9 +4419,11 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   stopMonitoring() {
+    this.isEnabled = false;
     this.monitoredElements.forEach((listeners, element) => {
       element.removeEventListener('input', listeners.handleInput);
       element.removeEventListener('paste', listeners.handlePaste);
+      element.removeEventListener('focus', listeners.handleFocus);
       element.removeEventListener('blur', listeners.handleBlur);
       element.removeEventListener('keydown', listeners.handleKeydown);
       element.removeEventListener('compositionstart', listeners.handleCompositionStart);
@@ -3365,11 +4457,24 @@ class VeilContentController {
     this.autoRedactTimers.forEach((timer) => clearTimeout(timer));
     this.autoRedactTimers.clear();
 
-    this.scanningPills.forEach((pill) => {
-      if (pill?.psHideTimer) clearTimeout(pill.psHideTimer);
-      pill?.remove?.();
+    this.fieldBadges.forEach((badge) => {
+      if (badge?._hideTimer) clearTimeout(badge._hideTimer);
+      badge?.remove?.();
     });
-    this.scanningPills.clear();
+    this.fieldBadges.clear();
+    this.fieldPanels.forEach((panel) => {
+      if (panel?._outsideClickHandler) {
+        document.removeEventListener('mousedown', panel._outsideClickHandler, true);
+      }
+      if (panel?._escHandler) {
+        document.removeEventListener('keydown', panel._escHandler, true);
+      }
+      panel?.remove?.();
+    });
+    this.fieldPanels.clear();
+    this.badgeBlurTimers.forEach((timer) => clearTimeout(timer));
+    this.badgeBlurTimers.clear();
+    this.focusedElements.clear();
 
     this.hidePopover();
     this.hideRevealOverlay();
@@ -3409,11 +4514,11 @@ class VeilContentController {
   // ═══════════════════════════════════════════════════════════
 
   getSiteAliasKey() {
-    return `veil::aliases::${location.hostname}`;
+    return `ai_safe_plugin::aliases::${location.hostname}`;
   }
 
   getSiteRedactCountKey() {
-    return `veil::redactCount::${location.hostname}`;
+    return `ai_safe_plugin::redactCount::${location.hostname}`;
   }
 
   async loadSiteAliasLedger() {
@@ -3445,8 +4550,76 @@ class VeilContentController {
     }, 1000);
   }
 
-  // Build the popup/settings redaction key from currently active Veil states only.
-  // Veil must never rewrite provider-owned thread history with original values.
+  // ── Persistent per-site ignore list (U3) ──────────────────────────────────
+  // Values the user chose to "Ignore on this site" so AI-Safe Plugin stops flagging them
+  // across reloads. Stored per host with a 90-day TTL and FIFO cap.
+
+  getSiteIgnoredKey() {
+    return `ai_safe_plugin::ignored::${location.hostname}`;
+  }
+
+  async loadSiteIgnoredValues() {
+    this.siteIgnoredValues = new Map(); // label → Set<value> (exact, trimmed)
+    this._siteIgnoredEntries = [];      // [{ value, label, addedAt }] (load-prune-persist)
+    const key = this.getSiteIgnoredKey();
+    try {
+      const data = await new Promise((resolve) => chrome.storage.local.get([key], resolve));
+      const stored = data[key];
+      let entries = Array.isArray(stored?.entries) ? stored.entries : [];
+      const before = entries.length;
+      entries = capFifo(pruneIgnoredByTtl(entries, IGNORED_VALUES_TTL_MS), IGNORED_VALUES_MAX_PER_SITE);
+      this._siteIgnoredEntries = entries;
+      for (const e of entries) {
+        if (!e || typeof e.value !== 'string' || typeof e.label !== 'string') continue;
+        this._addToIgnoredMap(e.label, e.value);
+      }
+      if (entries.length !== before) this.persistSiteIgnoredValues(); // write back the prune
+    } catch { /* non-fatal */ }
+  }
+
+  _addToIgnoredMap(label, value) {
+    const v = String(value || '').trim();
+    if (!v) return;
+    if (!this.siteIgnoredValues.has(label)) this.siteIgnoredValues.set(label, new Set());
+    this.siteIgnoredValues.get(label).add(v);
+  }
+
+  isValueIgnored(label, text) {
+    const set = this.siteIgnoredValues?.get(label);
+    return Boolean(set && set.has(String(text || '').trim()));
+  }
+
+  persistSiteIgnoredValues() {
+    clearTimeout(this._siteIgnoredPersistTimer);
+    this._siteIgnoredPersistTimer = setTimeout(() => {
+      const key = this.getSiteIgnoredKey();
+      chrome.storage.local.set({
+        [key]: { entries: this._siteIgnoredEntries, updatedAt: Date.now() }
+      });
+    }, 600);
+  }
+
+  // Add a detection's (label, value) to the per-site ignore list, then dismiss it.
+  // High-risk labels are never ignorable.
+  ignoreDetectionValue(element, index) {
+    const item = this.redactions.get(element)?.items?.[index];
+    if (!item || HIGH_RISK_LABELS.includes(item.label)) return;
+    const value = String(item.text || '').trim();
+    if (value && !this.isValueIgnored(item.label, value)) {
+      this._addToIgnoredMap(item.label, value);
+      this._siteIgnoredEntries.push({ value, label: item.label, addedAt: Date.now() });
+      this._siteIgnoredEntries = capFifo(this._siteIgnoredEntries, IGNORED_VALUES_MAX_PER_SITE);
+      this.persistSiteIgnoredValues();
+    }
+    this.dismissDetection(element, index);
+  }
+
+  canIgnoreLabel(label) {
+    return !HIGH_RISK_LABELS.includes(label);
+  }
+
+  // Build the popup/settings redaction key from currently active AI-Safe Plugin states only.
+  // AI-Safe Plugin must never rewrite provider-owned thread history with original values.
   buildVisibleRedactionKey() {
     // Start with persisted ledger so entries survive after the chat app
     // clears the input field on submit.
@@ -3458,6 +4631,7 @@ class VeilContentController {
         const replacement = this.getReplacementText(item, state.mode);
         const original = String(item.text || '').trim();
         if (!replacement || !original || replacement === original) return;
+        if (isStaticRedactionToken(replacement)) return;
         if (!map.has(replacement)) map.set(replacement, original);
       });
     });
@@ -3473,6 +4647,7 @@ class VeilContentController {
         const replacement = this.getReplacementText(item, state.mode);
         const original = String(item.text || '').trim();
         if (!replacement || !original || replacement === original) return;
+        if (isStaticRedactionToken(replacement)) return;
         if (!map.has(replacement)) map.set(replacement, original);
       });
     });
@@ -3481,7 +4656,7 @@ class VeilContentController {
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => new VeilContentController());
+  document.addEventListener('DOMContentLoaded', () => new AiSafePluginContentController());
 } else {
-  new VeilContentController();
+  new AiSafePluginContentController();
 }

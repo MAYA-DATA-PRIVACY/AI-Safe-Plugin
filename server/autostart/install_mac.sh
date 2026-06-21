@@ -4,14 +4,14 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${REPO_DIR}/.venv/bin/python"
 PLIST_DIR="${HOME}/Library/LaunchAgents"
-PLIST_LABEL="com.veil.gliner.server"
+PLIST_LABEL="com.ai_safe_plugin.gliner.server"
 LEGACY_PLIST_LABEL="com.privacyshield.gliner2"
 PLIST_FILE="${PLIST_DIR}/${PLIST_LABEL}.plist"
 LOG_FILE="${REPO_DIR}/.runtime/gliner2_server.log"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Missing virtualenv python: ${PYTHON_BIN}"
-  echo "Run the Veil installer first so uv can provision the managed runtime."
+  echo "Run the AI-Safe Plugin installer first so uv can provision the managed runtime."
   exit 1
 fi
 

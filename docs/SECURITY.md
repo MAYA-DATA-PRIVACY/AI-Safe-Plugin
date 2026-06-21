@@ -25,21 +25,46 @@ If a fix is warranted, we will coordinate a disclosure timeline with you (typica
 
 ## Threat Model
 
-Veil operates entirely client-side. The surfaces most relevant to security researchers are:
+AI-Safe Plugin performs PII detection locally by default. The browser extension sends text to the local AI-Safe Plugin server on `127.0.0.1:8765` for GLiNER2 inference and local regex handling. Optional Maya anonymisation is disabled by default; when enabled, selected anonymisation payloads are proxied from the local server to Maya.
+
+The surfaces most relevant to security researchers are:
 
 | Surface | Notes |
 |---------|-------|
 | Content script ↔ page DOM | `innerHTML` injection paths — all user-controlled strings must be `escapeHtml()`-escaped |
 | Content script ↔ background message | Structured-clone boundary; validate all message shapes |
-| Background ↔ local Python server | HTTP on `127.0.0.1:8765` — no CSRF/Origin check yet (known, tracked) |
-| `chrome.storage.local` | API key stored; no sync, no cloud exposure |
+| Background ↔ local Python server | HTTP on `127.0.0.1:8765`. Detection endpoints (`/detect`, `/classify`, `/structure`, `/anonymize`) require a per-machine shared token (`X-AI-Safe-Plugin-Token`); CORS is limited to `chrome-extension://`/`moz-extension://` origins (plus any in `AI_SAFE_PLUGIN_EXTRA_ALLOWED_ORIGINS`). The server also validates the `Host` header (loopback only) and applies a per-request socket timeout |
+| Local server ↔ Maya anonymisation API | Optional external call for selected anonymisation payloads only when Anonymize mode and a Maya API key are configured |
+| `chrome.storage.local` | API key, anonymisation seed, server token, alias/ignore ledgers, cached redaction state, local stats, and per-site snoozes are stored locally only |
+| `chrome.storage.sync` | Only non-sensitive preferences sync across devices (enabled, sensitivity, redaction mode, auto-redact, enabled types, custom patterns/detectors, monitored/excluded sites and selectors). Secrets, ledgers, caches, stats, and snoozes are never synced |
 | Custom regex patterns | Executed client-side; regex DoS (ReDoS) possible with malicious patterns |
+
+---
+
+## Data Flow and Retention
+
+- **Local detection**: text being edited is sent from the active tab to the extension background worker and then to the local server. This path stays on the user's machine.
+- **Local server authentication**: on startup the server generates a random token (`secrets.token_hex(32)`) and writes it to `.runtime/server_token` with `0600` permissions (POSIX). The extension obtains it through the native messaging host (`get_server_token`) and sends it as `X-AI-Safe-Plugin-Token` on detection requests, so other local processes and localhost web pages cannot drive the detection endpoints. `/health` stays unauthenticated and advertises `authRequired`. Auth can be disabled with `--no-auth` / `AI_SAFE_PLUGIN_NO_AUTH=1` for custom setups.
+- **Optional Maya anonymisation**: Anonymize mode sends selected detected values and metadata needed for anonymisation to Maya through the local `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine.
+- **Browser-local storage**: AI-Safe Plugin stores configuration, custom patterns, the Maya API key if provided, onboarding/preferences, site redaction counters, and cached redaction state in `chrome.storage.local`.
+- **Cached redaction state**: local cache entries may include source text and detected items so the UI can keep redaction state consistent. Entries older than 24 hours are removed by extension cache cleanup.
+- **Local server logs**: anonymisation logging is metadata-only by default — the local server logs counts, status codes, and body sizes (`items_count`, `body_chars`), never raw upstream response values. Setting the environment variable `AI_SAFE_PLUGIN_DEBUG_ANON_LOGS=1` restores verbose logging (full upstream response and body previews) for debugging only; treat such logs as sensitive and do not enable it in normal use.
+
+---
+
+## Security Boundaries
+
+- AI-Safe Plugin protects text before submission. It does not control how destination sites or LLM providers store, log, train on, or process text after the user sends it.
+- AI-Safe Plugin's local trust boundary includes the user's browser profile, installed extensions, local processes, and anything with access to `chrome.storage.local` or localhost traffic on the machine.
+- The local server is intended to bind to `127.0.0.1`. Do not expose it on a network interface unless you also add appropriate authentication and network controls.
+- Custom regex rules are user-provided code-like configuration. Treat shared pattern sets as untrusted until reviewed.
 
 ---
 
 ## Known Accepted Risks
 
-- **Local server Origin validation**: The GLiNER2 server at `127.0.0.1:8765` does not currently validate the `Origin` header. This is acceptable because the server is only accessible from localhost and does not mutate persistent state. Tracking issue: #TBD.
+- **Local browser storage**: Maya API keys and cached redaction state are stored in `chrome.storage.local` and are never written to Chrome sync — only non-sensitive preferences sync across devices. Local data is still accessible to the local browser profile and should be treated as sensitive.
+- **Localhost exposure**: The local server trusts the user's machine boundary. CORS headers are restricted to trusted extension and localhost origins, but other local software can still interact with localhost services if it has sufficient local access.
 
 ---
 

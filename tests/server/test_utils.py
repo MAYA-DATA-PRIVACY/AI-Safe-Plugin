@@ -2,21 +2,32 @@
 Unit tests for pure utility functions in server/gliner2_server.py.
 Run with: pytest tests/server/test_utils.py -v
 """
+import os
 import sys
+import urllib.error
+from contextlib import contextmanager
 from pathlib import Path
+
+import pytest
 
 # Add server dir to path so we can import without installing
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "server"))
 
+import gliner2_server
 from gliner2_server import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
+    LABEL_TO_STRUCTURE_KEY,
     deduplicate_detections,
     flatten_gliner2_output,
     make_chunks,
     normalize_model_name,
+    proxy_anonymization,
     resolve_runtime_model_name,
+    scrub_upstream_detail,
 )
+
+SENTINEL = "SENTINEL_SECRET_VALUE"
 
 
 class TestMakeChunks:
@@ -44,6 +55,14 @@ class TestMakeChunks:
         for chunk_text, offset in chunks:
             for i, ch in enumerate(chunk_text):
                 covered.add(offset + i)
+        assert covered == set(range(len(text)))
+
+    def test_whitespace_adjusted_chunks_do_not_leave_gaps(self):
+        text = ("a" * (CHUNK_SIZE // 2)) + " " + ("b" * (CHUNK_SIZE + 20))
+        chunks = make_chunks(text)
+        covered = set()
+        for chunk_text, offset in chunks:
+            covered.update(range(offset, offset + len(chunk_text)))
         assert covered == set(range(len(text)))
 
     def test_chunk_offsets_correct(self):
@@ -156,3 +175,143 @@ class TestModelAliases:
     def test_public_onnx_alias_resolution(self):
         assert resolve_runtime_model_name("fastino/gliner2-large-v1") == "lmo3/gliner2-large-v1-onnx"
         assert resolve_runtime_model_name("fastino/gliner2-multi-v1") == "lmo3/gliner2-multi-v1-onnx"
+
+
+class TestStructureMapping:
+    def test_organization_has_its_own_structure_bucket(self):
+        assert LABEL_TO_STRUCTURE_KEY["organization"] == "organizations"
+        assert LABEL_TO_STRUCTURE_KEY["person"] == "persons"
+
+
+class TestLoadOrCreateToken:
+    def test_creates_token_with_restrictive_perms(self, monkeypatch, tmp_path):
+        token_file = tmp_path / "server_token"
+        monkeypatch.setattr(gliner2_server, "SERVER_TOKEN_FILE", token_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        token = gliner2_server.load_or_create_token()
+
+        assert len(token) == 64  # token_hex(32)
+        assert token_file.read_text(encoding="utf-8").strip() == token
+        if os.name != "nt":
+            mode = token_file.stat().st_mode & 0o777
+            assert mode == 0o600
+
+    def test_reuses_existing_token(self, monkeypatch, tmp_path):
+        token_file = tmp_path / "server_token"
+        token_file.write_text("existing-token-value", encoding="utf-8")
+        monkeypatch.setattr(gliner2_server, "SERVER_TOKEN_FILE", token_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        assert gliner2_server.load_or_create_token() == "existing-token-value"
+
+    def test_empty_token_file_is_replaced(self, monkeypatch, tmp_path):
+        token_file = tmp_path / "server_token"
+        token_file.write_text("", encoding="utf-8")
+        monkeypatch.setattr(gliner2_server, "SERVER_TOKEN_FILE", token_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        token = gliner2_server.load_or_create_token()
+
+        assert len(token) == 64
+        assert token_file.read_text(encoding="utf-8").strip() == token
+
+
+class TestLoadProcessState:
+    def test_corrupt_process_state_is_treated_as_missing(self, monkeypatch, tmp_path):
+        state_file = tmp_path / "server_process.json"
+        state_file.write_text("{invalid", encoding="utf-8")
+        monkeypatch.setattr(gliner2_server, "PROCESS_STATE_FILE", state_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        assert gliner2_server.load_process_state() == {}
+
+
+def test_windows_connection_aborted_error_is_treated_as_disconnect():
+    source = Path(gliner2_server.__file__).read_text(encoding="utf-8")
+
+    assert "ConnectionAbortedError" in source
+    assert "WinError 10053" in source
+
+
+class TestScrubUpstreamDetail:
+    def test_empty_body(self):
+        assert scrub_upstream_detail("") == ""
+
+    def test_json_error_field_is_returned(self):
+        assert scrub_upstream_detail('{"error": "rate limited"}') == "rate limited"
+
+    def test_json_message_field_is_returned(self):
+        assert scrub_upstream_detail('{"message": "bad request"}') == "bad request"
+
+    def test_non_json_is_omitted(self):
+        assert scrub_upstream_detail(f"oops {SENTINEL}") == "<non-json upstream error body omitted>"
+
+    def test_json_without_error_field_is_omitted(self):
+        assert scrub_upstream_detail(f'{{"detail": "{SENTINEL}"}}') == "<non-json upstream error body omitted>"
+
+
+@contextmanager
+def _fake_response(status, body):
+    class _Resp:
+        status = None
+
+        def read(self):
+            return body.encode("utf-8")
+
+    resp = _Resp()
+    resp.status = status
+    yield resp
+
+
+class TestAnonymizationLogging:
+    """H1: anonymization logging must be metadata-only by default (no raw PII)."""
+
+    def test_successful_response_logs_metadata_not_body(self, monkeypatch, capsys):
+        body = f'[{{"original": "{SENTINEL}", "replacement": "Acme"}}]'
+        monkeypatch.setattr(gliner2_server, "DEBUG_ANON_LOGS", False)
+        monkeypatch.setattr(
+            gliner2_server.urlrequest, "urlopen",
+            lambda *a, **k: _fake_response(200, body),
+        )
+
+        result = proxy_anonymization([{"text": "x", "label": "org"}], "jwt-token", "req-1")
+
+        assert isinstance(result, list) and len(result) == 1
+        out = capsys.readouterr().out
+        assert "items_count" in out
+        assert SENTINEL not in out
+
+    def test_http_error_logs_body_chars_not_body(self, monkeypatch, capsys):
+        body = f'{{"detail": "{SENTINEL}"}}'
+
+        def _raise(*a, **k):
+            raise urllib.error.HTTPError("url", 422, "Unprocessable", {}, None)
+
+        monkeypatch.setattr(gliner2_server, "DEBUG_ANON_LOGS", False)
+        monkeypatch.setattr(gliner2_server.urlrequest, "urlopen", _raise)
+        monkeypatch.setattr(
+            urllib.error.HTTPError, "read",
+            lambda self: body.encode("utf-8"), raising=False,
+        )
+
+        with pytest.raises(RuntimeError) as exc_info:
+            proxy_anonymization([{"text": "x", "label": "org"}], "jwt-token", "req-2")
+
+        out = capsys.readouterr().out
+        assert "body_chars" in out
+        assert SENTINEL not in out
+        assert SENTINEL not in str(exc_info.value)
+
+    def test_debug_flag_restores_verbose_logging(self, monkeypatch, capsys):
+        body = f'[{{"original": "{SENTINEL}"}}]'
+        monkeypatch.setattr(gliner2_server, "DEBUG_ANON_LOGS", True)
+        monkeypatch.setattr(
+            gliner2_server.urlrequest, "urlopen",
+            lambda *a, **k: _fake_response(200, body),
+        )
+
+        proxy_anonymization([{"text": "x", "label": "org"}], "jwt-token", "req-3")
+
+        out = capsys.readouterr().out
+        assert SENTINEL in out

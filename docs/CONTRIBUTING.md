@@ -1,6 +1,6 @@
-# Contributing to Veil
+# Contributing to AI-Safe Plugin
 
-Thank you for taking the time to contribute. Veil is a privacy tool — contributions that strengthen security, broaden PII coverage, or improve user experience are especially welcome.
+Thanks for taking the time to contribute. AI-Safe Plugin is a privacy tool, so anything that hardens security, catches more kinds of PII, or makes the extension easier to live with is especially welcome.
 
 ---
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Native messaging host for Veil.
+Native messaging host for AI-Safe Plugin.
 
 The host exposes start / stop / restart / status controls for the local
 GLiNER2 server. The backend runtime itself is managed by uv and kept inside the
-Veil install directory.
+AI-Safe Plugin install directory.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List
 
-HOST_NAME = "com.veil.gliner.server"
+HOST_NAME = "com.ai_safe_plugin.gliner.server"
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 8765
 SERVER_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/health"
@@ -34,6 +34,7 @@ PINNED_PYTHON_VERSION = "3.11.11"
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_DIR / "server" / "gliner2_server.py"
+AUTOSTART_WRAPPER_PATH = REPO_DIR / "server" / "autostart" / "start_server.cmd"
 VENV_DIR = REPO_DIR / ".venv"
 VENV_PYTHON = VENV_DIR / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 PYPROJECT_FILE = REPO_DIR / "pyproject.toml"
@@ -116,6 +117,36 @@ def runtime_env(extra_env: Dict[str, str] | None = None) -> Dict[str, str]:
 
 def is_windows_platform() -> bool:
     return os.name == "nt"
+
+
+def is_macos_platform() -> bool:
+    return sys.platform == "darwin"
+
+
+def harden_macos_runtime(target: Path) -> None:
+    """Strip the Gatekeeper quarantine attribute and ad-hoc-sign Mach-O files under
+    ``target`` so macOS (esp. Apple Silicon) executes the downloaded CPython instead
+    of killing it with SIGKILL ("Killed: 9"). Best-effort: any failure is ignored."""
+    if not is_macos_platform() or not target.exists():
+        return
+    try:
+        subprocess.run(
+            ["xattr", "-dr", "com.apple.quarantine", str(target)],
+            check=False, capture_output=True,
+        )
+    except Exception:
+        pass
+    for pattern in ("python3*", "*.dylib", "*.so"):
+        for macho in target.rglob(pattern):
+            if not macho.is_file():
+                continue
+            try:
+                subprocess.run(
+                    ["codesign", "--force", "--sign", "-", str(macho)],
+                    check=False, capture_output=True,
+                )
+            except Exception:
+                pass
 
 
 def run_cmd(
@@ -215,12 +246,19 @@ def read_recent_logs(lines: int = 120) -> list[str]:
     return all_lines[-keep:]
 
 
-def is_pid_running(pid: int | None) -> bool:
-    if not pid:
-        return False
+def normalize_pid(pid: Any) -> int | None:
     try:
         normalized_pid = int(pid)
     except (TypeError, ValueError):
+        return None
+    if normalized_pid <= 0:
+        return None
+    return normalized_pid
+
+
+def is_pid_running(pid: Any) -> bool:
+    normalized_pid = normalize_pid(pid)
+    if normalized_pid is None:
         return False
     if is_windows_platform():
         return is_pid_running_windows(normalized_pid)
@@ -285,8 +323,14 @@ def normalize_command(command: str) -> str:
 def is_owned_server_command(command: str) -> bool:
     normalized = normalize_command(command)
     script_path = normalize_command(str(SCRIPT_PATH))
+    autostart_wrapper_path = normalize_command(str(AUTOSTART_WRAPPER_PATH))
     repo_dir = normalize_command(str(REPO_DIR))
-    return script_path in normalized and repo_dir in normalized
+    server_script_name = normalize_command("gliner2_server.py")
+    return (
+        script_path in normalized
+        or autostart_wrapper_path in normalized
+        or (repo_dir in normalized and server_script_name in normalized)
+    )
 
 
 def list_processes() -> list[dict[str, Any]]:
@@ -347,10 +391,12 @@ def tracked_server_pids() -> list[int]:
     candidates: list[int] = []
     seen: set[int] = set()
     for payload in (read_process_state(), load_state()):
-        pid = payload.get("pid")
-        if isinstance(pid, int) and pid not in seen and is_pid_running(pid):
-            seen.add(pid)
-            candidates.append(pid)
+        normalized_pid = normalize_pid(payload.get("pid"))
+        if normalized_pid is None:
+            continue
+        if normalized_pid not in seen and is_pid_running(normalized_pid):
+            seen.add(normalized_pid)
+            candidates.append(normalized_pid)
     for pid in discover_owned_server_pids():
         if pid not in seen:
             seen.add(pid)
@@ -467,6 +513,7 @@ def runtime_meta() -> Dict[str, Any]:
     model_override = os.environ.get(MODEL_ENV_VAR, "").strip()
     owned_pid = active_server_pid()
     port_open = is_port_open()
+    healthy = is_server_healthy()
     return {
         "installed": VENV_PYTHON.exists(),
         "healthUrl": SERVER_URL,
@@ -484,7 +531,7 @@ def runtime_meta() -> Dict[str, Any]:
         "lockFile": str(UV_LOCK_FILE),
         "modelOverride": model_override or None,
         "restartSupported": True,
-        "portConflict": bool(port_open and owned_pid is None and not is_server_healthy()),
+        "portConflict": bool(port_open and owned_pid is None and not healthy),
         **read_bundle_release_info(),
     }
 
@@ -493,11 +540,11 @@ def sync_managed_runtime() -> None:
     uv_binary = resolve_uv_binary()
     if uv_binary is None:
         raise RuntimeError(
-            "Veil runtime manager is missing. Re-run the installer to restore the pinned uv runtime."
+            "AI-Safe Plugin runtime manager is missing. Re-run the installer to restore the pinned uv runtime."
         )
     if not PYPROJECT_FILE.exists() or not UV_LOCK_FILE.exists():
         raise RuntimeError(
-            "Veil runtime metadata is missing. Re-run the installer to restore pyproject.toml and uv.lock."
+            "AI-Safe Plugin runtime metadata is missing. Re-run the installer to restore pyproject.toml and uv.lock."
         )
 
     env = runtime_env()
@@ -516,6 +563,10 @@ def sync_managed_runtime() -> None:
     if python_install.returncode != 0:
         details = trim_output(python_install.stderr or python_install.stdout)
         raise RuntimeError(f"Managed Python install failed:\n{details}")
+
+    # De-quarantine/ad-hoc-sign the freshly downloaded interpreter before `uv sync`
+    # queries it, or macOS will SIGKILL it ("Killed: 9").
+    harden_macos_runtime(UV_PYTHON_INSTALL_DIR)
 
     sync = run_cmd(
         [
@@ -536,6 +587,8 @@ def sync_managed_runtime() -> None:
     if sync.returncode != 0:
         details = trim_output(sync.stderr or sync.stdout)
         raise RuntimeError(f"Runtime sync failed:\n{details}")
+
+    harden_macos_runtime(VENV_DIR)
 
     read_runtime_python_version.cache_clear()
 
@@ -603,19 +656,19 @@ def ensure_model_downloaded(model_id: str = "", extra_env: Dict[str, str] | None
 
 def server_status() -> Dict[str, Any]:
     process_state = read_process_state()
-    process_pid = process_state.get("pid")
+    process_pid = normalize_pid(process_state.get("pid"))
     process_running = is_pid_running(process_pid)
 
     state = load_state()
-    tracked_pid = state.get("pid")
+    tracked_pid = normalize_pid(state.get("pid"))
     tracked_running = is_pid_running(tracked_pid)
 
     owned_pids = discover_owned_server_pids()
     owned_pid = owned_pids[0] if owned_pids else None
     healthy = is_server_healthy()
     port_open = is_port_open()
-    port_conflict = bool(port_open and owned_pid is None and not healthy)
     running = bool(process_running or tracked_running or owned_pid or healthy)
+    port_conflict = bool(port_open and not running and not healthy)
 
     if owned_pid and not tracked_running:
         remember_server_pid(owned_pid)
@@ -704,7 +757,7 @@ def start_server(
                 "message": "Server started.",
                 **runtime_meta(),
             }
-        # Port open but never became healthy — true conflict with a non-Veil process
+        # Port open but never became healthy — true conflict with a non-AI-Safe Plugin process
         if status.get("portConflict"):
             return {
                 "success": True,
@@ -712,7 +765,7 @@ def start_server(
                 "healthy": False,
                 "pid": None,
                 "portConflict": True,
-                "message": "Port 8765 is already in use by another local process. Veil will not stop it automatically.",
+                "message": "Port 8765 is already in use by another local process. AI-Safe Plugin will not stop it automatically.",
                 **runtime_meta(),
             }
         # Port open, not healthy, but looks like our own server still loading
@@ -747,7 +800,7 @@ def start_server(
 
     ensure_runtime_dirs()
     if not VENV_PYTHON.exists():
-        raise RuntimeError("Veil managed runtime is missing. Re-run the installer to restore the local environment.")
+        raise RuntimeError("AI-Safe Plugin managed runtime is missing. Re-run the installer to restore the local environment.")
     log_handle = LOG_FILE.open("a", encoding="utf-8")
     cmd = [str(VENV_PYTHON), "-u", str(SCRIPT_PATH), "--host", SERVER_HOST, "--port", str(SERVER_PORT)]
     if resolved_model:
@@ -794,7 +847,7 @@ def stop_server() -> Dict[str, Any]:
     if failures:
         return {
             "success": False,
-            "error": f"Failed to stop Veil-managed server process(es): {', '.join(map(str, failures))}.",
+            "error": f"Failed to stop AI-Safe Plugin-managed server process(es): {', '.join(map(str, failures))}.",
             "running": True,
             "healthy": is_server_healthy(),
             "pid": failures[0],
@@ -829,10 +882,27 @@ def restart_server(
     )
 
 
+def get_server_token() -> Dict[str, Any]:
+    """Return the local server's shared token so the extension can authenticate
+    its detection requests. The server writes this file with 0600 permissions."""
+    token_file = RUNTIME_DIR / "server_token"
+    try:
+        token = token_file.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return {"success": False, "error": "token_unavailable"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    if not token:
+        return {"success": False, "error": "token_unavailable"}
+    return {"success": True, "token": token}
+
+
 def handle_request(request: Dict[str, Any]) -> Dict[str, Any]:
     action = request.get("action")
     if action == "status":
         return server_status()
+    if action == "get_server_token":
+        return get_server_token()
     if action == "start":
         return start_server(
             install_deps=bool(request.get("installDeps", True)),

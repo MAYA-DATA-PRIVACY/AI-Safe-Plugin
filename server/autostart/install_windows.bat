@@ -9,19 +9,19 @@ popd
 
 set "VENV_PYTHON=%REPO_DIR%\.venv\Scripts\python.exe"
 set "SERVER_SCRIPT=%REPO_DIR%\server\gliner2_server.py"
-set "TASK_NAME=Veil GLiNER Server"
-set "LEGACY_TASK_NAME=PrivacyShieldGLiNER2"
+set "TASK_NAME=AISafePluginGLiNER2"
 
 if not exist "%VENV_PYTHON%" (
     echo ERROR: .venv not found. Run install_native_host_windows.bat first.
     exit /b 1
 )
 
-schtasks /delete /tn "%LEGACY_TASK_NAME%" /f >nul 2>&1
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
+schtasks /delete /tn "AI-Safe Plugin GLiNER Server" /f >nul 2>&1
+schtasks /delete /tn "PrivacyShieldGLiNER2" /f >nul 2>&1
 
 :: Create a wrapper script that sets cache env vars before starting the server.
-:: This ensures the model cache lives inside the Veil install directory, matching
+:: This ensures the model cache lives inside the AI-Safe Plugin install directory, matching
 :: the location used by the pre-download step during install.
 set "WRAPPER=%REPO_DIR%\server\autostart\start_server.cmd"
 (
@@ -44,7 +44,7 @@ if errorlevel 1 (
 )
 
 echo Scheduled task created: %TASK_NAME%
-echo The Veil GLiNER server will start automatically at next login.
+echo The AI-Safe Plugin GLiNER server will start automatically at next login.
 echo.
 echo Manual start from Command Prompt:
 echo   start "" "%VENV_PYTHON%" "%SERVER_SCRIPT%" --host 127.0.0.1 --port 8765

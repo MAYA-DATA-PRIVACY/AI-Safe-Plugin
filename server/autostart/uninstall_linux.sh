@@ -11,8 +11,8 @@ remove_service() {
   rm -f "${service_file}"
 }
 
-remove_service "veil-gliner-server.service"
+remove_service "ai-safe-plugin-gliner-server.service"
 remove_service "privacy-shield-gliner.service"
 
 systemctl --user daemon-reload
-echo "Removed Veil GLiNER Server autostart units."
+echo "Removed AI-Safe Plugin GLiNER Server autostart units."

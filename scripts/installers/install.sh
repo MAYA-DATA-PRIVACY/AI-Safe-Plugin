@@ -1,23 +1,82 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_SLUG="Maya-Data-Privacy/Veil"
+REPO_SLUG="Maya-Data-Privacy/AI-Safe-Plugin"
 RELEASE_BASE="https://github.com/${REPO_SLUG}/releases/latest/download"
-ASSET_NAME="veil-backend-unix.tar.gz"
+ASSET_NAME="ai-safe-plugin-backend-unix.tar.gz"
 DEFAULT_ANON_ENDPOINT="https://app.mayadataprivacy.in/mdp/engine/anonymization"
 PINNED_UV_VERSION="0.10.7"
 PINNED_PYTHON_VERSION="3.11.11"
+DEFAULT_EXTENSION_ID="aggkonihfabdcbgomkfecjhdolddfabe"
 
-EXTENSION_ID=""
-INSTALL_DIR="${VEIL_INSTALL_DIR:-}"
+EXTENSION_IDS=()
+INSTALL_DIR="${AI_SAFE_PLUGIN_INSTALL_DIR:-}"
 RECREATE_VENV=0
-UV_VERSION="${VEIL_UV_VERSION:-${PINNED_UV_VERSION}}"
+UV_VERSION="${AI_SAFE_PLUGIN_UV_VERSION:-${PINNED_UV_VERSION}}"
 UV_BIN_OVERRIDE=""
 UV_BIN=""
 
 fail() {
   echo "$1" >&2
   exit 1
+}
+
+# Compute the SHA-256 of a file using whichever tool is available (Linux ships
+# sha256sum; macOS ships shasum). Prints the hex digest, or an empty string when
+# no tool is found.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo ""
+  fi
+}
+
+# verify_asset_checksum <downloaded_file> <hard|soft>
+# Verifies the file against the release's SHA256SUMS (downloaded once into
+# TMP_DIR). Missing SHA256SUMS or a missing tool → warn and continue (back-compat
+# with older releases). A mismatch aborts in "hard" mode (backend bundle) and
+# returns non-zero in "soft" mode (model, which has a HuggingFace fallback).
+verify_asset_checksum() {
+  local asset_path="$1"
+  local mode="${2:-hard}"
+  local asset_name
+  asset_name="$(basename "${asset_path}")"
+  local sums_file="${TMP_DIR}/SHA256SUMS"
+
+  if [[ ! -f "${sums_file}" ]]; then
+    if ! curl -fsSL "${RELEASE_BASE}/SHA256SUMS" -o "${sums_file}" 2>/dev/null; then
+      echo "Warning: SHA256SUMS not available from release; skipping checksum verification for ${asset_name}." >&2
+      return 0
+    fi
+  fi
+
+  local expected
+  expected="$(grep -E "[[:space:]]\*?${asset_name}\$" "${sums_file}" | head -n1 | awk '{print $1}')"
+  if [[ -z "${expected}" ]]; then
+    echo "Warning: ${asset_name} not listed in SHA256SUMS; skipping verification." >&2
+    return 0
+  fi
+
+  local actual
+  actual="$(sha256_of "${asset_path}")"
+  if [[ -z "${actual}" ]]; then
+    echo "Warning: no SHA-256 tool available; skipping verification for ${asset_name}." >&2
+    return 0
+  fi
+
+  if [[ "${actual}" == "${expected}" ]]; then
+    echo "Checksum verified: ${asset_name}"
+    return 0
+  fi
+
+  if [[ "${mode}" == "soft" ]]; then
+    echo "Warning: checksum verification failed for ${asset_name}; continuing." >&2
+    return 1
+  fi
+  fail "Checksum verification failed for ${asset_name}. Aborting install."
 }
 
 json_escape() {
@@ -43,7 +102,7 @@ python_version_of() {
   "${python_bin}" -c "import sys; print('.'.join(map(str, sys.version_info[:3])))" 2>/dev/null || true
 }
 
-kill_veil_processes() {
+kill_ai_safe_plugin_processes() {
   local install_dir="$1"
   local -a patterns=(
     "${install_dir}/server/gliner2_server.py"
@@ -197,18 +256,48 @@ sync_runtime() {
     UV_LINK_MODE=copy \
     "${UV_BIN}" python install "${PINNED_PYTHON_VERSION}" --install-dir "${runtime_dir}/python"
 
+  # macOS (esp. Apple Silicon) kills freshly-downloaded interpreters with SIGKILL
+  # ("Killed: 9") when they still carry the com.apple.quarantine xattr or lack a
+  # valid signature. Strip quarantine and best-effort ad-hoc re-sign so `uv sync`
+  # (which queries the interpreter) and the server can actually execute it.
+  if [[ "${PLATFORM}" == "mac" ]]; then
+    harden_macos_runtime "${runtime_dir}/python"
+  fi
+
   env \
     UV_CACHE_DIR="${runtime_dir}/cache/uv" \
     UV_PYTHON_INSTALL_DIR="${runtime_dir}/python" \
     UV_PROJECT_ENVIRONMENT="${INSTALL_DIR}/.venv" \
     UV_LINK_MODE=copy \
     "${UV_BIN}" sync --frozen --no-dev --no-install-project --directory "${INSTALL_DIR}" --python "${PINNED_PYTHON_VERSION}" --managed-python
+
+  if [[ "${PLATFORM}" == "mac" ]]; then
+    harden_macos_runtime "${INSTALL_DIR}/.venv"
+  fi
+}
+
+# Remove the Gatekeeper quarantine attribute and ad-hoc-sign any Mach-O files under
+# a runtime directory so macOS will execute the downloaded CPython instead of
+# SIGKILL-ing it. All steps are best-effort (no-ops on non-mac / missing tools).
+harden_macos_runtime() {
+  local target="$1"
+  [[ -d "${target}" ]] || return 0
+  xattr -dr com.apple.quarantine "${target}" >/dev/null 2>&1 || true
+  if command -v codesign >/dev/null 2>&1; then
+    while IFS= read -r macho; do
+      codesign --force --sign - "${macho}" >/dev/null 2>&1 || true
+    done < <(find "${target}" -type f \( -name 'python3*' -o -name '*.dylib' -o -name '*.so' \) 2>/dev/null)
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --extension-id)
-      EXTENSION_ID="${2:-}"
+      EXTENSION_IDS+=("${2:-}")
+      shift 2
+      ;;
+    --extension-ids)
+      EXTENSION_IDS+=("${2:-}")
       shift 2
       ;;
     --install-dir)
@@ -233,14 +322,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${EXTENSION_ID}" ]]; then
-  fail "Usage: curl .../install.sh | bash -s -- --extension-id <EXTENSION_ID> [--install-dir <dir>] [--recreate-venv]"
+if [[ "${#EXTENSION_IDS[@]}" -eq 0 ]]; then
+  EXTENSION_IDS=("${DEFAULT_EXTENSION_ID}")
+  echo "No extension id supplied; using the pinned AI-Safe Plugin id ${DEFAULT_EXTENSION_ID}."
 fi
 
 OS_NAME="$(uname -s)"
 case "${OS_NAME}" in
-  Linux*) PLATFORM="linux"; DEFAULT_INSTALL_DIR="${HOME}/.local/share/veil" ;;
-  Darwin*) PLATFORM="mac"; DEFAULT_INSTALL_DIR="${HOME}/Library/Application Support/Veil" ;;
+  Linux*) PLATFORM="linux"; DEFAULT_INSTALL_DIR="${HOME}/.local/share/ai-safe-plugin" ;;
+  Darwin*) PLATFORM="mac"; DEFAULT_INSTALL_DIR="${HOME}/Library/Application Support/AI-Safe Plugin" ;;
   *)
     fail "Unsupported OS for install.sh: ${OS_NAME}"
     ;;
@@ -256,8 +346,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Downloading Veil backend bundle..."
+echo "Downloading AI-Safe Plugin backend bundle..."
 curl -fsSL "${RELEASE_BASE}/${ASSET_NAME}" -o "${ARCHIVE_PATH}"
+verify_asset_checksum "${ARCHIVE_PATH}" hard
 
 mkdir -p "${EXTRACT_DIR}" "${INSTALL_DIR}"
 tar -xzf "${ARCHIVE_PATH}" -C "${EXTRACT_DIR}"
@@ -270,7 +361,7 @@ else
   [[ -f "${INSTALL_DIR}/server/native-host/uninstall_mac.sh" ]] && bash "${INSTALL_DIR}/server/native-host/uninstall_mac.sh" || true
 fi
 
-kill_veil_processes "${INSTALL_DIR}"
+kill_ai_safe_plugin_processes "${INSTALL_DIR}"
 remove_install_contents "${INSTALL_DIR}"
 cp -R "${EXTRACT_DIR}/." "${INSTALL_DIR}/"
 
@@ -299,7 +390,7 @@ export XDG_CACHE_HOME="${INSTALL_DIR}/.runtime/cache/xdg"
 
 # Download the pre-packaged fp16 model from the GitHub Release (much faster than
 # pulling from HuggingFace Hub). Falls back to HF download if the asset is missing.
-MODEL_ASSET="veil-model-fp16.tar.gz"
+MODEL_ASSET="ai-safe-plugin-model-fp16.tar.gz"
 MODEL_ARCHIVE="${TMP_DIR}/${MODEL_ASSET}"
 MODEL_DEST="${INSTALL_DIR}/.runtime/cache/model"
 
@@ -308,26 +399,26 @@ if model_cache_present; then
   echo "Existing GLiNER2 model cache found; skipping download."
 else
   echo "Downloading GLiNER2 model (~1.8 GB, this may take a few minutes)..."
-  if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1; then
+  if curl -fL --progress-bar "${RELEASE_BASE}/${MODEL_ASSET}" -o "${MODEL_ARCHIVE}" 2>&1 && verify_asset_checksum "${MODEL_ARCHIVE}" soft; then
     echo "Extracting model..."
     mkdir -p "${MODEL_DEST}"
     tar -xzf "${MODEL_ARCHIVE}" -C "${MODEL_DEST}"
     echo "Model extracted to ${MODEL_DEST}"
   else
-    echo "Bundled model not found in release; downloading from HuggingFace Hub..."
+    echo "Bundled model unavailable or failed verification; downloading from HuggingFace Hub..."
     "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/server/gliner2_server.py" --download-only || echo "Warning: model download failed. It will download on first use."
   fi
 fi
 
 if [[ "${PLATFORM}" == "linux" ]]; then
-  bash server/native-host/install_linux.sh "${EXTENSION_ID}"
+  bash server/native-host/install_linux.sh "${EXTENSION_IDS[@]}"
   bash server/autostart/install_linux.sh
 else
-  bash server/native-host/install_mac.sh "${EXTENSION_ID}"
+  bash server/native-host/install_mac.sh "${EXTENSION_IDS[@]}"
   bash server/autostart/install_mac.sh
 fi
 
 echo
-echo "Veil install complete."
+echo "AI-Safe Plugin install complete."
 echo "Install directory: ${INSTALL_DIR}"
-echo "Extension ID: ${EXTENSION_ID}"
+echo "Extension IDs: ${EXTENSION_IDS[*]}"

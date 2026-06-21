@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   Veil — Settings Page
+   AI-Safe Plugin — Settings Page
    Full Material Design 3 implementation
    Seed colour: #6750A4  |  https://m3.material.io/
    ═══════════════════════════════════════════════════════════ */
@@ -67,7 +67,7 @@
   --md-elev-3: 0 4px 8px 3px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.3);
 
   /* ── Typography ── */
-  --md-font: "Roboto", "Google Sans", system-ui, sans-serif;
+  --md-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --md-font-mono: "Roboto Mono", "JetBrains Mono", "SF Mono", monospace;
   --opt-section-scroll-offset: 112px;
 }
@@ -94,6 +94,14 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Stack the beta banner above the sidebar+main row without overflowing the viewport.
+   Scoped to the settings page so it doesn't leak into playground.html (which also
+   loads options.css and centers its card with its own inline body flex). */
+body.opt-page {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Neutralise popup.css shell card */
 .shell { display: contents; }
 
@@ -106,7 +114,8 @@ html, body {
 .opt-layout {
   display: flex;
   width: 100vw;
-  height: 100vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   font-family: var(--md-font);
   color: var(--md-on-surface);
@@ -136,11 +145,15 @@ html, body {
 
 .opt-brand-logo,
 .opt-brand-logo-img {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
-  border-radius: var(--md-shape-sm);
+  padding: 6px;
+  border-radius: 10px;
   object-fit: contain;
+  /* White Maya atom needs a coloured backing on the light sidebar. */
+  background: linear-gradient(145deg, #7B61C4, #6750A4);
+  box-shadow: 0 2px 6px rgba(103, 80, 164, 0.30);
 }
 
 .opt-brand-text {
@@ -149,12 +162,11 @@ html, body {
   gap: 2px;
 }
 
-/* M3 Title Large */
 .opt-brand-name {
-  font-size: 22px;
-  font-weight: 400;
-  line-height: 28px;
-  letter-spacing: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: -0.01em;
   color: var(--md-on-surface);
 }
 
@@ -943,7 +955,11 @@ html, body {
 /* ── M3 Buttons ── */
 
 /* Base — Filled (primary) */
-button {
+/* Scoped to settings + playground so this aggressive M3 reset does NOT leak onto
+   the body-level injected redaction panel (.ps-panel-* buttons), which would
+   otherwise be forced into giant purple pills on pages that load options.css. */
+.opt-layout button,
+.pg-card button {
   font-family: var(--md-font) !important;
   font-size: 14px !important;     /* M3 Label Large */
   font-weight: 500 !important;
@@ -966,24 +982,28 @@ button {
   -webkit-tap-highlight-color: transparent !important;
 }
 
-button:hover:not(:disabled) {
+.opt-layout button:hover:not(:disabled),
+.pg-card button:hover:not(:disabled) {
   background: #7965AF !important;
   box-shadow: var(--md-elev-2) !important;
 }
 
-button:active:not(:disabled) {
+.opt-layout button:active:not(:disabled),
+.pg-card button:active:not(:disabled) {
   background: #5B4397 !important;
   box-shadow: var(--md-elev-1) !important;
 }
 
-button:disabled {
+.opt-layout button:disabled,
+.pg-card button:disabled {
   background: rgba(28,27,31,0.12) !important;
   color: rgba(28,27,31,0.38) !important;
   box-shadow: none !important;
   cursor: not-allowed !important;
 }
 
-button:focus-visible {
+.opt-layout button:focus-visible,
+.pg-card button:focus-visible {
   outline: 3px solid var(--md-primary) !important;
   outline-offset: 2px !important;
 }
@@ -997,6 +1017,27 @@ button.secondary {
 button.secondary:hover:not(:disabled) {
   background: #D9CFF0 !important;
   box-shadow: var(--md-elev-1) !important;
+}
+
+/* Danger zone (Delete all AI-Safe Plugin data) */
+.opt-danger-zone {
+  border-color: rgba(122, 82, 0, 0.45);
+}
+.opt-danger-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: #7A5200;
+  margin-bottom: 6px;
+}
+button.opt-danger-button {
+  background: #7A5200 !important;
+  color: #fff !important;
+}
+button.opt-danger-button:hover:not(:disabled) {
+  background: #613f00 !important;
+}
+button.opt-danger-button:active:not(:disabled) {
+  background: #4d3200 !important;
 }
 
 /* M3 Outlined Button */
@@ -1264,6 +1305,13 @@ a.diag-value { color: var(--md-primary) !important; }
   font-size: 14px !important;
   font-weight: 500 !important;
   color: var(--md-on-surface) !important;
+}
+.ignored-site-group { margin-bottom: 10px; }
+.ignored-site-host {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  margin: 6px 2px 4px;
 }
 .pattern-card-preview {
   font-size: 13px !important;

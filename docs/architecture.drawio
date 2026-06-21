@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mxfile host="app.diagrams.net" version="21.0.0">
-  <diagram name="Veil Architecture" id="veil-arch-v1">
+  <diagram name="AI-Safe Plugin Architecture" id="ai-safe-plugin-arch-v1">
     <mxGraphModel dx="1200" dy="780" grid="0" gridSize="10" guides="0" tooltips="1"
                   connect="0" arrows="0" fold="0" page="0" pageScale="1"
                   pageWidth="1169" pageHeight="827" math="0" shadow="0">
@@ -24,7 +24,7 @@
         </mxCell>
 
         <!-- ── BACKGROUND ── -->
-        <mxCell id="bg" value="background.js (Service Worker)&#xa;&#xa;GLiNER detector · Regex fallback&#xa;VeilAnonymizer · Storage broker" style="rounded=1;arcSize=8;fillColor=#FFF7ED;strokeColor=#FCA5A5;strokeWidth=1.5;fontSize=11;fontColor=#7C2D12;align=center;" vertex="1" parent="1">
+        <mxCell id="bg" value="background.js (Service Worker)&#xa;&#xa;GLiNER detector · Regex fallback&#xa;AiSafePluginAnonymizer · Storage broker" style="rounded=1;arcSize=8;fillColor=#FFF7ED;strokeColor=#FCA5A5;strokeWidth=1.5;fontSize=11;fontColor=#7C2D12;align=center;" vertex="1" parent="1">
           <mxGeometry x="320" y="280" width="210" height="88" as="geometry"/>
         </mxCell>
 

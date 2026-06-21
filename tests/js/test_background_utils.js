@@ -10,6 +10,16 @@ const {
   cloneDefaultCustomPatterns,
   normalizeCustomPatterns,
   PATTERN_NAMES,
+  HIGH_RISK_LABELS,
+  pruneIgnoredByTtl,
+  capFifo,
+  normalizeSiteHost,
+  hostMatchesSite,
+  isoWeekKey,
+  mergeRedactionStats,
+  SYNCED_SETTING_KEYS,
+  chunkForSync,
+  reassembleChunks,
 } = require('../../extension/pattern_catalog.js');
 const {
   REGEX_SMOKE_TEXT,
@@ -204,6 +214,43 @@ function buildResponseRestoreComponents(label, replacement, original) {
       !/\d/.test(part) &&
       !/\d/.test(mapped)
     ));
+}
+
+function collectSelectorMatches(selectors, querySelectorAll) {
+  const found = [];
+  selectors.forEach((selector) => {
+    let elements;
+    try {
+      elements = querySelectorAll(selector);
+    } catch {
+      return;
+    }
+    elements.forEach((element) => found.push(element));
+  });
+  return found;
+}
+
+const CORE_ENABLED_LABELS = new Set(['person','email','phone','address','ssn','credit_card','date_of_birth','location','organization']);
+
+function detectWithCustomPatternsForTest(text, patterns, threshold, enabledTypes) {
+  const enabledLabelSet = new Set((enabledTypes || []).map((type) => String(type || '').trim().toLowerCase()).filter(Boolean));
+  const detections = [];
+  patterns
+    .filter((patternDef) => patternDef && typeof patternDef === 'object' && patternDef.enabled !== false)
+    .forEach((patternDef) => {
+      const label = String(patternDef.label || 'custom').trim().toLowerCase();
+      if (CORE_ENABLED_LABELS.has(label) && !enabledLabelSet.has(label)) return;
+      const regex = new RegExp(patternDef.pattern, patternDef.flags || 'g');
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        detections.push({ text: match[0], label, start: match.index, end: match.index + match[0].length, score: patternDef.score || 0.96 });
+      }
+    });
+  return detections.filter((item) => item.score >= threshold);
+}
+
+function isStaticRedactionToken(value) {
+  return /^\[[A-Z0-9_ -]+ REDACTED\]$/.test(String(value || '').trim());
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -433,6 +480,121 @@ section('assistant response restore — non-person labels do not create sub-word
 {
   const parts = buildResponseRestoreComponents('organization', 'Maya Labs', 'Acme Systems');
   assertEqual(parts, [], 'sub-word local restore remains limited to person names');
+}
+
+section('site matching — exact or suffix-boundary only');
+{
+  assertEqual(normalizeSiteHost('https://*.ChatGPT.com/path'), 'chatgpt.com', 'configured site URLs normalize to hostnames');
+  assertEqual(hostMatchesSite('chatgpt.com', 'chatgpt.com'), true, 'exact monitored host matches');
+  assertEqual(hostMatchesSite('team.chatgpt.com', 'chatgpt.com'), true, 'subdomain monitored host matches');
+  assertEqual(hostMatchesSite('evilchatgpt.com', 'chatgpt.com'), false, 'substring host does not match');
+  assertEqual(hostMatchesSite('chatgpt.com.evil.example', 'chatgpt.com'), false, 'embedded monitored host does not match');
+  assertEqual(hostMatchesSite('gemini.google.com', 'https://gemini.google.com/path'), true, 'configured URL normalizes to hostname');
+}
+
+section('selector scanning — invalid selectors are isolated');
+{
+  const matches = collectSelectorMatches(['textarea', 'input[', '[role="textbox"]'], (selector) => {
+    if (selector === 'input[') throw new Error('invalid selector');
+    return [{ selector }];
+  });
+  assertEqual(matches.map((entry) => entry.selector), ['textarea', '[role="textbox"]'], 'one invalid selector does not stop later selectors');
+}
+
+section('custom patterns — core labels honor disabled enabledTypes');
+{
+  const patterns = [
+    { label: 'email', pattern: '\\btest@example\\.com\\b', flags: 'g', score: 0.99, enabled: true },
+    { label: 'api_key', pattern: '\\bsk-test-secret\\b', flags: 'g', score: 0.99, enabled: true },
+  ];
+  const detections = detectWithCustomPatternsForTest('test@example.com sk-test-secret', patterns, 0.5, ['person']);
+  assertEqual(detections.map((item) => item.label), ['api_key'], 'disabled core email pattern is skipped while non-core secret pattern remains active');
+}
+
+section('assistant response restore — static redaction tokens are not ledger keys');
+{
+  assertEqual(isStaticRedactionToken('[EMAIL REDACTED]'), true, 'plain static mask token is recognized');
+  assertEqual(isStaticRedactionToken('[NAME_1 REDACTED]'), true, 'indexed static mask token is recognized');
+  assertEqual(isStaticRedactionToken('Alexandra Aisha'), false, 'natural anonymized replacement is still eligible');
+}
+
+section('ignored-values helpers (U3)');
+{
+  const now = 1_000_000_000_000;
+  const day = 24 * 60 * 60 * 1000;
+  const ttl = 90 * day;
+  const entries = [
+    { value: 'Acme', label: 'organization', addedAt: now - (100 * day) }, // expired
+    { value: 'Globex', label: 'organization', addedAt: now - (10 * day) }, // fresh
+    { value: 'NoTimestamp', label: 'organization' }, // invalid → dropped
+  ];
+  const pruned = pruneIgnoredByTtl(entries, ttl, now);
+  assertEqual(pruned.map((e) => e.value), ['Globex'], 'pruneIgnoredByTtl drops expired and timestamp-less entries');
+  assertEqual(pruneIgnoredByTtl(null, ttl, now), [], 'pruneIgnoredByTtl tolerates non-array input');
+
+  const many = Array.from({ length: 205 }, (_, i) => ({ value: `v${i}`, label: 'organization', addedAt: now + i }));
+  const capped = capFifo(many, 200);
+  assertEqual(capped.length, 200, 'capFifo caps at the limit');
+  assertEqual(capped[0].value, 'v5', 'capFifo evicts the oldest entries from the front');
+  assertEqual(capped[capped.length - 1].value, 'v204', 'capFifo keeps the newest entry');
+  assertEqual(capFifo([{ value: 'a', label: 'x', addedAt: now }], 200).length, 1, 'capFifo is a no-op below the limit');
+
+  assertEqual(HIGH_RISK_LABELS.includes('api_key'), true, 'HIGH_RISK_LABELS excludes api_key from ignoring');
+  assertEqual(HIGH_RISK_LABELS.includes('ssn'), true, 'HIGH_RISK_LABELS excludes ssn from ignoring');
+  assertEqual(HIGH_RISK_LABELS.includes('person'), false, 'HIGH_RISK_LABELS allows ordinary labels like person');
+}
+
+section('privacy stats helpers (U7)');
+{
+  // isoWeekKey — known ISO-8601 boundaries (local-date input).
+  assertEqual(isoWeekKey(new Date(2026, 0, 1)), '2026-W01', 'Jan 1 2026 is ISO week 1');
+  assertEqual(isoWeekKey(new Date(2026, 5, 21)), '2026-W25', 'Jun 21 2026 is ISO week 25');
+  assertEqual(isoWeekKey(new Date(2021, 0, 1)), '2020-W53', 'Jan 1 2021 belongs to ISO week 53 of 2020');
+
+  // mergeRedactionStats — folds an event into a new object, immutably.
+  const s0 = mergeRedactionStats(undefined, 'email', '2026-W25');
+  assertEqual(s0, { totalProtected: 1, byLabel: { email: 1 }, byWeek: { '2026-W25': 1 } }, 'merge into empty stats seeds counters');
+
+  const s1 = mergeRedactionStats(s0, 'email', '2026-W25');
+  assertEqual(s1.totalProtected, 2, 'merge increments total');
+  assertEqual(s1.byLabel.email, 2, 'merge increments per-label');
+  assertEqual(s1.byWeek['2026-W25'], 2, 'merge increments per-week');
+  assertEqual(s0.totalProtected, 1, 'merge does not mutate the input (immutability)');
+
+  const s2 = mergeRedactionStats(s1, 'person', '2026-W26');
+  assertEqual(s2.totalProtected, 3, 'second label adds to total');
+  assertEqual(s2.byLabel.person, 1, 'new label tracked separately');
+  assertEqual(s2.byWeek['2026-W26'], 1, 'new week tracked separately');
+
+  // Counts only — no value/site fields ever appear.
+  assertEqual(Object.keys(s2).sort(), ['byLabel', 'byWeek', 'totalProtected'], 'stats object only holds count buckets');
+}
+
+section('settings sync helpers (P2)');
+{
+  // chunkForSync → reassembleChunks round-trip.
+  const small = { enabled: true, sensitivity: 'high' };
+  assertEqual(reassembleChunks(chunkForSync(small).chunks), small, 'small value round-trips through chunking');
+
+  // A value larger than one chunk splits and rejoins exactly.
+  const big = { customPatterns: Array.from({ length: 400 }, (_, i) => ({ id: `p${i}`, pattern: `\\bword${i}\\b`, flags: 'g' })) };
+  const chunked = chunkForSync(big, 1000);
+  assert(chunked.count > 1, `large value splits into multiple chunks (got ${chunked.count})`);
+  assertEqual(reassembleChunks(chunked.chunks), big, 'large value round-trips through chunking');
+
+  assertEqual(reassembleChunks([]), undefined, 'reassembleChunks tolerates empty input');
+  assertEqual(reassembleChunks(['{bad json']), undefined, 'reassembleChunks tolerates corrupt input');
+
+  // SYNCED_SETTING_KEYS must never include a sensitive key.
+  const forbidden = [
+    'aiSafePluginApiKey', 'aiSafePluginAnonymizationSeed', 'hfToken',
+    'aiSafePluginServerToken', 'aiSafePluginStats', 'siteSnoozes', 'selectedModel',
+    'aiSafePluginLocalServerUrlOverride',
+  ];
+  for (const key of forbidden) {
+    assertEqual(SYNCED_SETTING_KEYS.includes(key), false, `SYNCED_SETTING_KEYS excludes sensitive key ${key}`);
+  }
+  assertEqual(SYNCED_SETTING_KEYS.includes('sensitivity'), true, 'SYNCED_SETTING_KEYS includes a normal pref (sensitivity)');
 }
 
 // ── Summary ───────────────────────────────────────────────────────────────────

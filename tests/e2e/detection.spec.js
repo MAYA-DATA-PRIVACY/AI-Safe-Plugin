@@ -24,7 +24,7 @@ const OUTBOUND_PRIVACY_PAGE_URL = `${OFFLINE_SERVER_URL}${OUTBOUND_PRIVACY_PAGE_
 
 const TEST_PAGE_HTML = `<!DOCTYPE html>
 <html>
-<head><title>Veil detection test</title></head>
+<head><title>AI-Safe Plugin detection test</title></head>
 <body>
   <textarea id="userInput" style="width:400px;height:100px;"></textarea>
   <div class="markdown-body" id="responseArea">This is an AI response mentioning John Smith.</div>
@@ -33,7 +33,7 @@ const TEST_PAGE_HTML = `<!DOCTYPE html>
 
 const OUTBOUND_PRIVACY_PAGE_HTML = `<!DOCTYPE html>
 <html>
-<head><title>Veil outbound privacy fixture</title></head>
+<head><title>AI-Safe Plugin outbound privacy fixture</title></head>
 <body>
   <form id="composerForm">
     <textarea id="userInput" style="width:400px;height:100px;"></textarea>
@@ -74,7 +74,7 @@ const OUTBOUND_PRIVACY_PAGE_HTML = `<!DOCTYPE html>
 const HOSTILE_SCROLL_HTML = `<!DOCTYPE html>
 <html>
 <head>
-  <title>Veil hostile editor scroll test</title>
+  <title>AI-Safe Plugin hostile editor scroll test</title>
   <style>
     body { font-family: sans-serif; padding: 24px; }
     #scrollHost {
@@ -167,12 +167,19 @@ async function withExtensionPage(context, extensionId, callback) {
 }
 
 async function setLocalServerOverride(context, extensionId, url) {
-    await withExtensionPage(context, extensionId, (page) => page.evaluate(
+    const result = await withExtensionPage(context, extensionId, (page) => page.evaluate(
         (localServerUrl) => new Promise((resolve) => chrome.storage.local.set({
-            veilLocalServerUrlOverride: localServerUrl,
-        }, resolve)),
+            aiSafePluginLocalServerUrlOverride: localServerUrl,
+        }, () => {
+            chrome.runtime.sendMessage({ action: 'initialize' }, (initializeResponse) => {
+                chrome.runtime.sendMessage({ action: 'getStatus' }, (statusResponse) => {
+                    resolve({ initializeResponse, statusResponse });
+                });
+            });
+        })),
         url,
     ));
+    expect(result.statusResponse?.localServerUrl).toBe(url);
 }
 
 async function sendDetectRequest(context, extensionId, text, options = {}) {
@@ -183,6 +190,24 @@ async function sendDetectRequest(context, extensionId, text, options = {}) {
             options: payloadOptions,
         }, resolve)),
         { payloadText: text, payloadOptions: options },
+    ));
+}
+
+async function sendContentMessage(context, extensionId, pageUrl, message) {
+    return withExtensionPage(context, extensionId, (page) => page.evaluate(
+        ({ targetUrl, payload }) => new Promise((resolve) => {
+            chrome.tabs.query({}, (tabs) => {
+                const tab = tabs.find((entry) => entry.url === targetUrl);
+                if (!tab?.id) {
+                    resolve({ success: false, error: 'target tab not found' });
+                    return;
+                }
+                chrome.tabs.sendMessage(tab.id, payload, (response) => {
+                    resolve(response || { success: false, error: chrome.runtime.lastError?.message || 'no response' });
+                });
+            });
+        }),
+        { targetUrl: pageUrl, payload: message },
     ));
 }
 
@@ -252,6 +277,87 @@ test.describe('Content-Script Detection', () => {
         await page.close();
     });
 
+    test('excludedSites disables and re-enables detection without reloading the tab', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+        await withExtensionPage(context, extensionId, (page) => page.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({
+                autoRedact: false,
+                excludedSites: ['127.0.0.1'],
+            }, resolve)),
+        ));
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe and my email is jane@example.com');
+        await page.waitForTimeout(3000);
+
+        await expect(page.locator('.ps-field-badge')).toHaveCount(0);
+        await expect(page.locator('.ps-pii-underline')).toHaveCount(0);
+
+        await withExtensionPage(context, extensionId, (extensionPage) => extensionPage.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({ excludedSites: [] }, resolve)),
+        ));
+
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        await page.close();
+    });
+
+    test('commandRedactAll redacts pending detections in the focused field', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+        await withExtensionPage(context, extensionId, (page) => page.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({ autoRedact: false }, resolve)),
+        ));
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe and my email is jane@example.com');
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        const response = await sendContentMessage(context, extensionId, CONTENT_PAGE_URL, { action: 'commandRedactAll' });
+        expect(response.success).toBeTruthy();
+        await expect(textarea).toHaveValue(/NAME.*REDACTED/, { timeout: 5000 });
+        await expect(textarea).toHaveValue(/EMAIL.*REDACTED/, { timeout: 5000 });
+
+        await page.close();
+    });
+
+    test('commandToggleSite updates excludedSites for the current host', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const first = await sendContentMessage(context, extensionId, CONTENT_PAGE_URL, { action: 'commandToggleSite' });
+        expect(first.success).toBeTruthy();
+        expect(first.enabled).toBe(false);
+        expect(first.excludedSites).toContain('127.0.0.1');
+
+        const stored = await withExtensionPage(context, extensionId, (extensionPage) => extensionPage.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.get('excludedSites', (result) => resolve(result.excludedSites || []))),
+        ));
+        expect(stored).toContain('127.0.0.1');
+
+        const second = await sendContentMessage(context, extensionId, CONTENT_PAGE_URL, { action: 'commandToggleSite' });
+        expect(second.success).toBeTruthy();
+        expect(second.enabled).toBe(true);
+        expect(second.excludedSites).not.toContain('127.0.0.1');
+
+        await page.close();
+    });
+
     test('regex token detectors stay off while the model is online when the toggle is disabled', async ({ extensionContext }) => {
         const { context, extensionId } = extensionContext;
         await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
@@ -296,7 +402,7 @@ test.describe('Content-Script Detection', () => {
         EXPECTED_CUSTOM_REGEX_LABELS.forEach((label) => expect(labels.has(label), label).toBeTruthy());
     });
 
-    test('assistant responses restore originals locally while user thread prompts stay protected', async ({ extensionContext }) => {
+    test('static assistant response tokens stay masked while user thread prompts stay protected', async ({ extensionContext }) => {
         const { context, extensionId } = extensionContext;
         await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
 
@@ -325,8 +431,8 @@ test.describe('Content-Script Detection', () => {
         const injectedCount = await page.locator('#responseArea .ps-redaction, #responseArea .ps-pii-underline').count();
         expect(injectedCount).toBe(0);
 
-        await expect(page.locator('#responseArea')).toContainText('Rohan Sen');
-        await expect(page.locator('#responseArea')).not.toContainText(maskedName);
+        await expect(page.locator('#responseArea')).toContainText(maskedName);
+        await expect(page.locator('#responseArea')).not.toContainText('Rohan Sen');
         await expect(page.locator('#threadUser')).toContainText(maskedName);
         await expect(page.locator('#threadUser')).not.toContainText('Rohan Sen');
 
@@ -527,6 +633,773 @@ test.describe('Anchored Overlay Scroll Refresh', () => {
         await page.mouse.move(10, 10);
         await page.waitForTimeout(220);
         await expect(reveal).toBeHidden();
+
+        await page.close();
+    });
+});
+
+test.describe('Field Status Badge', () => {
+    let mockServer;
+    let offlineServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: {
+                [CONTENT_PAGE_PATH]: TEST_PAGE_HTML,
+                [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML,
+            },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try {
+                        payload = JSON.parse(body || '{}');
+                    } catch {
+                        payload = {};
+                    }
+                    const text = String(payload.text || '');
+                    return {
+                        headers: cors,
+                        body: {
+                            ok: true,
+                            detections: buildMockDetectionsForText(text),
+                        },
+                    };
+                },
+            },
+        });
+        offlineServer = await startMockServer({
+            port: OFFLINE_SERVER_PORT,
+            healthy: false,
+            loaded: false,
+            detections: [],
+            pages: {
+                [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML,
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+        if (offlineServer) await stopMockServer(offlineServer);
+        offlineServer = null;
+    });
+
+    test('badge shows count after detection', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for detection and badge to appear with count
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        // Badge count should be visible (non-empty)
+        const countText = await page.locator('.ps-field-badge.ps-badge-pending .ps-badge-count').textContent();
+        expect(Number.parseInt(countText, 10) || countText).toBeTruthy();
+
+        await page.close();
+    });
+
+    test('click on badge opens field panel', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for badge with pending state
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+
+        // Click badge to open panel
+        await badge.click();
+        await expect(page.locator('.ps-field-panel.ps-panel-visible')).toBeVisible({ timeout: 3000 });
+
+        // Panel should contain "AI-Safe Plugin ·" header
+        await expect(page.locator('.ps-panel-title')).toContainText('AI-Safe Plugin ·');
+
+        await page.close();
+    });
+
+    test('Redact all from panel redacts items and turns badge green', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for badge
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+
+        // Open panel
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+
+        // Click Redact all
+        const redactAllBtn = panel.locator('.ps-panel-btn-redact');
+        await expect(redactAllBtn).toBeVisible();
+        await redactAllBtn.click();
+
+        // Badge should turn green (protected)
+        await expect(page.locator('.ps-field-badge.ps-badge-protected')).toBeVisible({ timeout: 5000 });
+
+        await page.close();
+    });
+
+    test('badge persists on blur while pending', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        // Disable auto-redact so items stay pending after detection
+        await withExtensionPage(context, extensionId, (page) => page.evaluate(
+            () => new Promise((resolve) => chrome.storage.local.set({ autoRedact: false }, resolve)),
+        ));
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Wait for pending badge
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
+
+        // Explicitly blur the textarea — pending badge should remain visible
+        await textarea.evaluate((el) => el.blur());
+        await page.waitForTimeout(3000);
+
+        // Badge should still be visible because it is pending (safety signal)
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible();
+
+        await page.close();
+    });
+
+    test('badge hides on blur when idle (no detections)', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        // Wait for badge to appear in idle state (visible on focus, no detections yet)
+        await expect(page.locator('.ps-field-badge')).toBeVisible({ timeout: 3000 });
+
+        // Explicitly blur the textarea
+        await textarea.evaluate((el) => el.blur());
+        // Badge should fade out within ~4 s (2 s blur delay + transition)
+        await expect(page.locator('.ps-field-badge.ps-badge-visible')).toBeHidden({ timeout: 6000 });
+
+        await page.close();
+    });
+
+    test('badge clips inside the internal-scroll hostile-editor fixture', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, OFFLINE_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(OFFLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('Email: jane@example.com');
+
+        // Badge should appear
+        await expect(page.locator('.ps-field-badge')).toBeVisible({ timeout: 8000 });
+
+        // Badge should be within the scroll host bounds (clipped)
+        const badgeBounds = await page.locator('.ps-field-badge').boundingBox();
+        const hostBounds = await page.locator('#scrollHost').boundingBox();
+        expect(badgeBounds).not.toBeNull();
+        expect(hostBounds).not.toBeNull();
+        // Badge top/left must be within host rect (clamped by clip rect)
+        expect(badgeBounds.x + badgeBounds.width).toBeLessThanOrEqual(hostBounds.x + hostBounds.width + 4);
+        expect(badgeBounds.y + badgeBounds.height).toBeLessThanOrEqual(hostBounds.y + hostBounds.height + 4);
+
+        await page.close();
+    });
+});
+
+test.describe('Detection Popover (U2)', () => {
+    let mockServer;
+    const ONLINE_HOSTILE_SCROLL_URL = `${MOCK_SERVER_URL}${HOSTILE_SCROLL_PAGE_PATH}`;
+
+    test.beforeEach(async () => {
+        // Online model path leaves detections pending (underlined) rather than
+        // auto-redacting, so the explanatory popover is reachable.
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return {
+                        headers: cors,
+                        body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) },
+                    };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    async function openPopover(context, extensionId) {
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+        const page = await context.newPage();
+        await page.goto(ONLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('My name is Jane Doe');
+
+        const underline = page.locator('.ps-overlay-hl.ps-overlay-hl-underline').first();
+        await expect(underline).toBeVisible({ timeout: 8000 });
+        await underline.hover();
+
+        const popover = page.locator('.ps-popover.ps-popover-visible');
+        await expect(popover).toBeVisible({ timeout: 3000 });
+        return { page, popover };
+    }
+
+    test('hover on an underline shows a popover with the label and explanation', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await expect(popover.locator('.ps-popover-title')).toContainText('Person');
+        await expect(popover.locator('.ps-popover-text')).not.toBeEmpty();
+
+        await page.close();
+    });
+
+    test('Dismiss from the popover removes the detection and closes the card', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await popover.getByRole('button', { name: /Dismiss/ }).click();
+
+        await expect(page.locator('.ps-popover.ps-popover-visible')).toBeHidden({ timeout: 3000 });
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-underline')).toHaveCount(0, { timeout: 3000 });
+
+        await page.close();
+    });
+
+    test('Redact from the popover redacts the item and closes the card', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await popover.getByRole('button', { name: /Redact/ }).click();
+
+        await expect(page.locator('.ps-popover.ps-popover-visible')).toBeHidden({ timeout: 3000 });
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-redacted').first()).toBeVisible({ timeout: 3000 });
+
+        await page.close();
+    });
+
+    test('Escape closes the popover', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        const { page, popover } = await openPopover(context, extensionId);
+
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.ps-popover.ps-popover-visible')).toBeHidden({ timeout: 3000 });
+
+        await page.close();
+    });
+});
+
+test.describe('Persistent Ignore List (U3)', () => {
+    let mockServer;
+    const ONLINE_HOSTILE_SCROLL_URL = `${MOCK_SERVER_URL}${HOSTILE_SCROLL_PAGE_PATH}`;
+
+    function startWithDetections(detectFn) {
+        return startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [HOSTILE_SCROLL_PAGE_PATH]: HOSTILE_SCROLL_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: detectFn(String(payload.text || '')) } };
+                },
+            },
+        });
+    }
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('an ignored value stays ignored after reload', async ({ extensionContext }) => {
+        mockServer = await startWithDetections(buildMockDetectionsForText);
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(ONLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('My name is Jane Doe');
+
+        // Hover the underline → popover → "Ignore here".
+        const underline = page.locator('.ps-overlay-hl.ps-overlay-hl-underline').first();
+        await expect(underline).toBeVisible({ timeout: 8000 });
+        await underline.hover();
+        const popover = page.locator('.ps-popover.ps-popover-visible');
+        await expect(popover).toBeVisible({ timeout: 3000 });
+        await popover.getByRole('button', { name: /Ignore/ }).click();
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-underline')).toHaveCount(0, { timeout: 3000 });
+
+        // Reload and retype the same value — it must not be flagged again.
+        await page.reload();
+        await page.waitForLoadState('domcontentloaded');
+        const editor2 = page.locator('#hostileEditor');
+        await editor2.click();
+        await page.keyboard.insertText('My name is Jane Doe');
+        await page.waitForTimeout(3000);
+        await expect(page.locator('.ps-overlay-hl.ps-overlay-hl-underline')).toHaveCount(0);
+
+        await page.close();
+    });
+
+    test('high-risk labels do not offer an Ignore action', async ({ extensionContext }) => {
+        const ssnDetect = (text) => {
+            const token = '123-45-6789';
+            const start = text.indexOf(token);
+            if (start === -1) return [];
+            return [{ text: token, label: 'ssn', start, end: start + token.length, score: 0.97, source: 'gliner2' }];
+        };
+        mockServer = await startWithDetections(ssnDetect);
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(ONLINE_HOSTILE_SCROLL_URL);
+        await page.waitForLoadState('domcontentloaded');
+
+        const editor = page.locator('#hostileEditor');
+        await editor.click();
+        await page.keyboard.insertText('My SSN is 123-45-6789');
+
+        const underline = page.locator('.ps-overlay-hl.ps-overlay-hl-underline').first();
+        await expect(underline).toBeVisible({ timeout: 8000 });
+        await underline.hover();
+        const popover = page.locator('.ps-popover.ps-popover-visible');
+        await expect(popover).toBeVisible({ timeout: 3000 });
+
+        // Dismiss is present, but Ignore is not offered for high-risk labels.
+        await expect(popover.getByRole('button', { name: /Dismiss/ })).toBeVisible();
+        await expect(popover.getByRole('button', { name: /Ignore/ })).toHaveCount(0);
+
+        await page.close();
+    });
+});
+
+test.describe('Toolbar Badge (U1)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    // Opens an extension page, resolves the content-fixture tab id (the URL may
+    // change later on navigation), and returns a reader bound to that tab id.
+    async function openBadgeReader(context, extensionId) {
+        const extPage = await context.newPage();
+        await extPage.goto(`chrome-extension://${extensionId}/popup.html`);
+        await extPage.waitForLoadState('domcontentloaded');
+        const tabId = await extPage.evaluate(() => new Promise((resolve) => {
+            chrome.tabs.query({}, (tabs) => {
+                const t = (tabs || []).find((tab) => tab.url && tab.url.includes('content-fixture'));
+                resolve(t ? t.id : null);
+            });
+        }));
+        const read = () => extPage.evaluate((id) => new Promise((resolve) => {
+            chrome.action.getBadgeText({ tabId: id }, (text) => resolve(text));
+        }), tabId);
+        return { extPage, read };
+    }
+
+    test('shows an amber count after detection', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const { extPage, read } = await openBadgeReader(context, extensionId);
+        await expect.poll(read, { timeout: 10000 }).toMatch(/^[1-9]/);
+
+        await extPage.close();
+        await page.close();
+    });
+
+    test('flips to a green check after redact-all', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+        await expect(page.locator('.ps-field-badge.ps-badge-protected')).toBeVisible({ timeout: 5000 });
+
+        const { extPage, read } = await openBadgeReader(context, extensionId);
+        await expect.poll(read, { timeout: 10000 }).toBe('✓');
+
+        await extPage.close();
+        await page.close();
+    });
+
+    test('clears the badge on navigation', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        // Reader resolves the tab id while still on the fixture URL.
+        const { extPage, read } = await openBadgeReader(context, extensionId);
+        await expect.poll(read, { timeout: 10000 }).toMatch(/^[1-9]/);
+
+        // Navigate away — the badge must clear for that tab.
+        await page.goto('about:blank');
+        await page.waitForLoadState('domcontentloaded');
+        await expect.poll(read, { timeout: 10000 }).toBe('');
+
+        await extPage.close();
+        await page.close();
+    });
+});
+
+test.describe('Accessibility (U8)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('badge is a keyboard-operable button that opens the panel; Escape closes and returns focus', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await expect(badge).toHaveAttribute('role', 'button');
+        await expect(badge).toHaveAttribute('aria-label', /need attention/);
+
+        // Keyboard open.
+        await badge.focus();
+        await page.keyboard.press('Enter');
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await expect(panel).toHaveAttribute('role', 'dialog');
+
+        // Escape closes and focus returns to the badge.
+        await page.keyboard.press('Escape');
+        await expect(page.locator('.ps-field-panel.ps-panel-visible')).toBeHidden({ timeout: 3000 });
+        const focusedIsBadge = await page.evaluate(() =>
+            document.activeElement?.classList?.contains('ps-field-badge') === true);
+        expect(focusedIsBadge).toBe(true);
+
+        await page.close();
+    });
+
+    test('redact-all is announced via an aria-live region', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+
+        const live = page.locator('[role="status"][aria-live="polite"]');
+        await expect.poll(async () => (await live.textContent()) || '', { timeout: 5000 }).toMatch(/protected/);
+
+        await page.close();
+    });
+
+    test('token tray chips expose an action+type aria-label', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+        await page.keyboard.press('Escape');
+
+        const chip = page.locator('.ps-token-chip').first();
+        await expect(chip).toHaveAttribute('aria-label', /Restore|Re-redact/, { timeout: 5000 });
+
+        await page.close();
+    });
+});
+
+test.describe('First-run Playground (U6)', () => {
+    let offlineServer;
+
+    test.beforeEach(async () => {
+        // Unhealthy server → the content controller falls back to regex detection,
+        // which catches the synthetic secrets in the sample text without a model.
+        offlineServer = await startMockServer({
+            port: OFFLINE_SERVER_PORT,
+            healthy: false,
+            loaded: false,
+            detections: [],
+        });
+    });
+
+    test.afterEach(async () => {
+        if (offlineServer) await stopMockServer(offlineServer);
+        offlineServer = null;
+    });
+
+    test('playground page boots the real detector and protects sample text offline', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, OFFLINE_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(`chrome-extension://${extensionId}/playground.html`);
+        await page.waitForLoadState('domcontentloaded');
+
+        // Insert the synthetic sample — this fills the contenteditable and fires input.
+        await page.locator('#insertSampleBtn').click();
+
+        // The real content.js controller booted on the extension page and detected:
+        // the field badge appears, and at least one value is redacted.
+        await expect(page.locator('.ps-field-badge')).toBeVisible({ timeout: 10000 });
+        await expect(page.locator('.ps-redaction, .ps-overlay-hl-redacted, .ps-token-chip').first())
+            .toBeVisible({ timeout: 10000 });
+
+        await page.close();
+    });
+});
+
+test.describe('Local Privacy Stats (U7)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('redacting accumulates durable privacy stats (counts only)', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        const badge = page.locator('.ps-field-badge.ps-badge-pending');
+        await expect(badge).toBeVisible({ timeout: 8000 });
+        await badge.click();
+        const panel = page.locator('.ps-field-panel.ps-panel-visible');
+        await expect(panel).toBeVisible({ timeout: 3000 });
+        await panel.locator('.ps-panel-btn-redact').click();
+
+        // Durable stats are written (debounced) under aiSafePluginStats. Read from an
+        // extension page since chrome.storage isn't exposed to the content page's world.
+        const readStats = () => withExtensionPage(context, extensionId, (p) => p.evaluate(() =>
+            new Promise((r) => chrome.storage.local.get('aiSafePluginStats', (d) => r(d.aiSafePluginStats || null)))));
+
+        await expect.poll(async () => (await readStats())?.totalProtected || 0, { timeout: 8000 })
+            .toBeGreaterThanOrEqual(1);
+
+        const stats = await readStats();
+        expect(Object.keys(stats.byLabel || {}).length).toBeGreaterThanOrEqual(1);
+        expect(Object.keys(stats.byWeek || {}).length).toBeGreaterThanOrEqual(1);
+        // Counts only — the stats object must not carry values or sites.
+        expect(Object.keys(stats).sort()).toEqual(['byLabel', 'byWeek', 'totalProtected']);
+
+        await page.close();
+    });
+});
+
+test.describe('Lazy Initialization (P1)', () => {
+    let mockServer;
+
+    test.beforeEach(async () => {
+        mockServer = await startMockServer({
+            port: MOCK_SERVER_PORT,
+            healthy: true,
+            loaded: true,
+            detections: MOCK_MODEL_DETECTIONS,
+            pages: { [CONTENT_PAGE_PATH]: TEST_PAGE_HTML },
+            handlers: {
+                'POST /detect': ({ body, cors }) => {
+                    let payload = {};
+                    try { payload = JSON.parse(body || '{}'); } catch { payload = {}; }
+                    return { headers: cors, body: { ok: true, detections: buildMockDetectionsForText(String(payload.text || '')) } };
+                },
+            },
+        });
+    });
+
+    test.afterEach(async () => {
+        if (mockServer) await stopMockServer(mockServer);
+        mockServer = null;
+    });
+
+    test('generic page injects nothing until a field is focused, then detects', async ({ extensionContext }) => {
+        const { context, extensionId } = extensionContext;
+        await setLocalServerOverride(context, extensionId, MOCK_SERVER_URL);
+
+        const page = await context.newPage();
+        await page.goto(CONTENT_PAGE_URL);
+        await page.waitForLoadState('domcontentloaded');
+        // Give init() time to run loadSettings + arm; it must NOT boot yet.
+        await page.waitForTimeout(1000);
+        expect(await page.locator('#privacy-shield-overlay').count()).toBe(0);
+
+        // First focus of the monitored field triggers the full boot.
+        const textarea = page.locator('#userInput');
+        await textarea.click();
+        await textarea.fill('My name is Jane Doe');
+
+        await expect(page.locator('#privacy-shield-overlay')).toBeAttached({ timeout: 8000 });
+        await expect(page.locator('.ps-field-badge.ps-badge-pending')).toBeVisible({ timeout: 8000 });
 
         await page.close();
     });

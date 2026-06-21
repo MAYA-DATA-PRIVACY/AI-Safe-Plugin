@@ -4,14 +4,14 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${REPO_DIR}/.venv/bin/python"
 SERVICE_DIR="${HOME}/.config/systemd/user"
-SERVICE_NAME="veil-gliner-server.service"
+SERVICE_NAME="ai-safe-plugin-gliner-server.service"
 LEGACY_SERVICE_NAME="privacy-shield-gliner.service"
 SERVICE_FILE="${SERVICE_DIR}/${SERVICE_NAME}"
 LOG_FILE="${REPO_DIR}/.runtime/gliner2_server.log"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "Missing virtualenv python: ${PYTHON_BIN}"
-  echo "Run the Veil installer first so uv can provision the managed runtime."
+  echo "Run the AI-Safe Plugin installer first so uv can provision the managed runtime."
   exit 1
 fi
 
@@ -26,7 +26,7 @@ rm -f "${SERVICE_DIR}/${LEGACY_SERVICE_NAME}"
 
 cat > "${SERVICE_FILE}" <<EOF
 [Unit]
-Description=Veil GLiNER Server
+Description=AI-Safe Plugin GLiNER Server
 After=network-online.target
 Wants=network-online.target
 

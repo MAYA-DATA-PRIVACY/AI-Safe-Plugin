@@ -1,13 +1,13 @@
 # Contributors
 
-Thank you to everyone who has contributed to Veil — Privacy Shield for LLM Interfaces.
+Thanks to everyone who has helped build AI-Safe Plugin.
 
 ## Core Contributors
 
 | Name                  | Role                 | Profile                                                      |
 | --------------------- | -------------------- | ------------------------------------------------------------ |
 | **Nishikant Mandal**  | Creator & Maintainer | [@nishikantmandal007](https://github.com/nishikantmandal007) |
-| **Claude Sonnet 4.6** | AI Pair Programmer   | [Anthropic](https://anthropic.com)                           |
+| **Claude**            | AI Pair Programmer   | [Anthropic](https://anthropic.com)                           |
 
 ## How to Contribute
 

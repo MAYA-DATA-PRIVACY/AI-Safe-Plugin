@@ -4,7 +4,44 @@ import './pattern_catalog.js';
 
 const {
   cloneDefaultCustomPatterns,
-} = globalThis.VEIL_PATTERN_CATALOG;
+  SYNCED_SETTING_KEYS,
+  reassembleChunks,
+} = globalThis.AI_SAFE_PLUGIN_PATTERN_CATALOG;
+
+const SYNC_CHUNKED_KEYS = ['customPatterns', 'customEntityTypes'];
+
+// P2: copy synced settings (chrome.storage.sync) into local when the synced copy
+// is newer than this device's last local write. Content scripts then pick up the
+// local change through their existing storage.onChanged reconciler. Local is the
+// source of truth; we only import when another device's write is strictly newer.
+async function applySyncedSettingsIfNewer() {
+  try {
+    const [syncData, localData] = await Promise.all([
+      new Promise((resolve) => chrome.storage.sync.get(null, resolve)),
+      new Promise((resolve) => chrome.storage.local.get(['aiSafePluginSettingsUpdatedAt'], resolve)),
+    ]);
+    const syncTs = Number(syncData?.aiSafePluginSyncMeta?.updatedAt) || 0;
+    const localTs = Number(localData?.aiSafePluginSettingsUpdatedAt) || 0;
+    if (syncTs <= localTs) return; // not newer (or our own write) → no-op, no loop
+
+    const toApply = {};
+    for (const key of SYNCED_SETTING_KEYS) {
+      if (SYNC_CHUNKED_KEYS.includes(key)) {
+        const count = Number(syncData[`${key}__count`]) || 0;
+        if (count <= 0) continue;
+        const parts = [];
+        for (let i = 0; i < count; i++) parts.push(syncData[`${key}__chunk${i}`] ?? '');
+        const value = reassembleChunks(parts);
+        if (value !== undefined) toApply[key] = value;
+      } else if (syncData[key] !== undefined) {
+        toApply[key] = syncData[key];
+      }
+    }
+    if (Object.keys(toApply).length === 0) return;
+    toApply.aiSafePluginSettingsUpdatedAt = syncTs;
+    await new Promise((resolve) => chrome.storage.local.set(toApply, resolve));
+  } catch { /* sync unavailable — local remains authoritative */ }
+}
 
 const DEFAULT_LABELS = [
   'person',
@@ -17,6 +54,7 @@ const DEFAULT_LABELS = [
   'location',
   'organization'
 ];
+const CORE_ENABLED_LABELS = new Set(DEFAULT_LABELS);
 
 // GLiNER2 accepts labels as a Dict[internal_name → natural_language_description].
 // The model uses the description for zero-shot embedding matching; it returns
@@ -106,13 +144,13 @@ const DEFAULT_MONITORED_SELECTORS = [
   '.ProseMirror'
 ];
 
-const NATIVE_HOST_NAMES = ['com.veil.gliner.server', 'com.privacyshield.gliner2'];
-const MDP_SEED_STORAGE_KEY = 'veilAnonymizationSeed';
-const MDP_SEED_PREFIX = 'veil_';
+const NATIVE_HOST_NAMES = ['com.ai_safe_plugin.gliner.server', 'com.privacyshield.gliner2'];
+const MDP_SEED_STORAGE_KEY = 'aiSafePluginAnonymizationSeed';
+const MDP_SEED_PREFIX = 'ai_safe_plugin_';
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:8765';
-const LOCAL_SERVER_URL_OVERRIDE_KEY = 'veilLocalServerUrlOverride';
+const LOCAL_SERVER_URL_OVERRIDE_KEY = 'aiSafePluginLocalServerUrlOverride';
 
-// Maps Veil detection labels → MayaData anonymisation engine utility parameters.
+// Maps AI-Safe Plugin detection labels → MayaData anonymisation engine utility parameters.
 // Available MayaData UtilityParameter enum values:
 //   IBAN, MATERIAL, CONSISTENT_ID, NUMBER, NAME, CLEAR, PHONE, URL, ADDRESS,
 //   PASSPORT_NUMBER, ACCOUNT_NUMBER, EMAIL, BANK_DETAILS, ORG_NAME, SSN,
@@ -253,7 +291,7 @@ function readConfiguredLocalServerUrl() {
   });
 }
 
-class VeilAnonymizer {
+class AiSafePluginAnonymizer {
   constructor() {
     this.timeoutMs = 6000;
     this.localServerUrl = DEFAULT_LOCAL_SERVER_URL;
@@ -278,7 +316,7 @@ class VeilAnonymizer {
         .filter((label) => label && !MDP_LABEL_CONFIG[label])
     ));
     if (unsupportedLabels.length > 0) {
-      console.debug('[Veil] Anonymizer skipped unsupported labels:', unsupportedLabels.join(', '));
+      console.debug('[AI-Safe Plugin] Anonymizer skipped unsupported labels:', unsupportedLabels.join(', '));
     }
     if (supportedDetections.length === 0) {
       return detections;
@@ -286,7 +324,7 @@ class VeilAnonymizer {
 
     const credentials = await this.getCredentials();
     if (!credentials.apiKey) {
-      console.warn('[Veil] Anonymizer skipped: no API key configured. Set one in the extension popup.');
+      console.warn('[AI-Safe Plugin] Anonymizer skipped: no API key configured. Set one in the extension popup.');
       return detections;
     }
 
@@ -300,7 +338,7 @@ class VeilAnonymizer {
       const replacements = this.extractReplacementMap(payload, apiResponse);
       return detections.map((item) => this.applyReplacement(item, replacements));
     } catch (error) {
-      console.warn('[Veil] Anonymization bulk request failed, retrying per label:', error?.message || String(error));
+      console.warn('[AI-Safe Plugin] Anonymization bulk request failed, retrying per label:', error?.message || String(error));
       const replacements = await this.callApiBestEffort(credentials.apiKey, payload);
       if (replacements.size === 0) {
         return detections;
@@ -311,7 +349,7 @@ class VeilAnonymizer {
 
   async getCredentials() {
     const result = await new Promise((resolve) => {
-      chrome.storage.local.get(['veilApiKey', MDP_SEED_STORAGE_KEY], resolve);
+      chrome.storage.local.get(['aiSafePluginApiKey', MDP_SEED_STORAGE_KEY], resolve);
     });
 
     let seed = String(result?.[MDP_SEED_STORAGE_KEY] || '').trim();
@@ -321,7 +359,7 @@ class VeilAnonymizer {
     }
 
     return {
-      apiKey: String(result?.veilApiKey || '').trim(),
+      apiKey: String(result?.aiSafePluginApiKey || '').trim(),
       seed
     };
   }
@@ -360,15 +398,21 @@ class VeilAnonymizer {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await fetch(`${this.localServerUrl}/anonymize`, {
+      const body = JSON.stringify({ entries: payload });
+      const doFetch = async () => fetch(`${this.localServerUrl}/anonymize`, {
         method: 'POST',
-        headers: {
+        headers: await localServerHeaders({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({ entries: payload }),
+        }),
+        body,
         signal: controller.signal
       });
+      let response = await doFetch();
+      if (response.status === 401 && aiSafePluginAuthRequired) {
+        await refreshServerToken();
+        response = await doFetch();
+      }
 
       let data = null;
       try {
@@ -409,7 +453,7 @@ class VeilAnonymizer {
         replacementMap.forEach((value, key) => merged.set(key, value));
       } catch (error) {
         const label = String(entry?.utilityParameter || entry?.column_name || 'unknown');
-        console.warn(`[Veil] Anonymizer skipped label ${label}:`, error?.message || String(error));
+        console.warn(`[AI-Safe Plugin] Anonymizer skipped label ${label}:`, error?.message || String(error));
       }
     }
     return merged;
@@ -604,6 +648,53 @@ function sendNativeHostMessage(payload) {
   return tryHost(0);
 }
 
+// ─── Local-server shared token (H2) ──────────────────────────────────────────
+// The local server generates a token and the native host hands it to us. We
+// attach it as X-AI-Safe-Plugin-Token on detection POSTs. When the server reports
+// authRequired:false (old servers / --no-auth / the e2e mock) we skip all of this.
+const SERVER_TOKEN_STORAGE_KEY = 'aiSafePluginServerToken';
+let aiSafePluginServerToken = null;
+let aiSafePluginAuthRequired = false;
+
+async function loadCachedServerToken() {
+  if (aiSafePluginServerToken) return aiSafePluginServerToken;
+  try {
+    const stored = await chrome.storage.local.get(SERVER_TOKEN_STORAGE_KEY);
+    if (stored && stored[SERVER_TOKEN_STORAGE_KEY]) {
+      aiSafePluginServerToken = stored[SERVER_TOKEN_STORAGE_KEY];
+    }
+  } catch (_e) { /* storage unavailable — non-fatal */ }
+  return aiSafePluginServerToken;
+}
+
+async function refreshServerToken() {
+  try {
+    const response = await sendNativeHostMessage({ action: 'get_server_token' });
+    if (response && response.token) {
+      aiSafePluginServerToken = response.token;
+      try { await chrome.storage.local.set({ [SERVER_TOKEN_STORAGE_KEY]: aiSafePluginServerToken }); } catch (_e) { /* non-fatal */ }
+      return aiSafePluginServerToken;
+    }
+  } catch (_e) { /* native host unavailable — caller surfaces setup-needed state */ }
+  return null;
+}
+
+async function getServerToken() {
+  const cached = await loadCachedServerToken();
+  if (cached) return cached;
+  return refreshServerToken();
+}
+
+// Build request headers for a local-server POST, adding the token when required.
+async function localServerHeaders(base = {}) {
+  const headers = { ...base };
+  if (aiSafePluginAuthRequired) {
+    const token = await getServerToken();
+    if (token) headers['X-AI-Safe-Plugin-Token'] = token;
+  }
+  return headers;
+}
+
 class GLiNERDetector {
   constructor() {
     this.isLoading = false;
@@ -652,6 +743,9 @@ class GLiNERDetector {
       const response = await this.fetchWithTimeout(`${this.localServerUrl}/health`, { method: 'GET' }, 1400);
       if (!response.ok) return false;
       const data = await response.json();
+      // Track whether this server enforces the shared token so detection POSTs
+      // can attach it. Old servers / the mock omit the field → treated as false.
+      aiSafePluginAuthRequired = Boolean(data?.authRequired);
       return Boolean(data?.ok);
     } catch {
       return false;
@@ -707,7 +801,7 @@ class GLiNERDetector {
     const shouldRunRegexDetectors = !modelOnline || includeRegexWhenModelOnline;
     if (shouldRunRegexDetectors) {
       detections.push(...this.detectWithRegex(text, enabledTypes, threshold));
-      detections.push(...this.detectWithCustomPatterns(text, customPatterns, threshold));
+      detections.push(...this.detectWithCustomPatterns(text, customPatterns, threshold, enabledTypes));
     }
 
     return this.mergeAdjacentSameLabel(
@@ -731,7 +825,7 @@ class GLiNERDetector {
 
     const detections = [
       ...this.detectWithRegex(text, enabledTypes, threshold),
-      ...this.detectWithCustomPatterns(text, customPatterns, threshold)
+      ...this.detectWithCustomPatterns(text, customPatterns, threshold, enabledTypes)
     ];
 
     return this.mergeAdjacentSameLabel(
@@ -869,16 +963,22 @@ class GLiNERDetector {
     const requestBody = { text, labels, threshold };
     if (thresholds) requestBody.thresholds = thresholds;
 
-    const response = await this.fetchWithTimeout(
+    const body = JSON.stringify(requestBody);
+    const doFetch = async () => this.fetchWithTimeout(
       `${this.localServerUrl}/detect`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        headers: await localServerHeaders({ 'Content-Type': 'application/json' }),
+        body
       },
       8000,  // longer timeout — server may be chunking + batching long inputs
       signal
     );
+    let response = await doFetch();
+    if (response.status === 401 && aiSafePluginAuthRequired) {
+      await refreshServerToken();
+      response = await doFetch();
+    }
 
     if (!response.ok) {
       throw new Error(`GLiNER2 server returned status ${response.status}`);
@@ -991,8 +1091,13 @@ class GLiNERDetector {
     return detections.filter((item) => item.score >= threshold);
   }
 
-  detectWithCustomPatterns(text, patterns, threshold) {
+  detectWithCustomPatterns(text, patterns, threshold, enabledTypes = this.labels) {
     const detections = [];
+    const enabledLabelSet = new Set(
+      (Array.isArray(enabledTypes) ? enabledTypes : this.labels)
+        .map((type) => String(type || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
     patterns
       .filter((patternDef) => patternDef && typeof patternDef === 'object' && patternDef.enabled !== false)
       .forEach((patternDef) => {
@@ -1003,6 +1108,7 @@ class GLiNERDetector {
         const replacement = patternDef.replacement ? String(patternDef.replacement) : null;
 
         if (!label || !pattern) return;
+        if (CORE_ENABLED_LABELS.has(label) && !enabledLabelSet.has(label)) return;
 
         let regex;
         try {
@@ -1039,12 +1145,18 @@ class GLiNERDetector {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
     try {
-      const response = await fetch(`${this.localServerUrl}/classify`, {
+      const body = JSON.stringify({ text });
+      const doFetch = async () => fetch(`${this.localServerUrl}/classify`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        headers: await localServerHeaders({ 'Content-Type': 'application/json' }),
+        body,
         signal: controller.signal,
       });
+      let response = await doFetch();
+      if (response.status === 401 && aiSafePluginAuthRequired) {
+        await refreshServerToken();
+        response = await doFetch();
+      }
       if (!response.ok) return null;
       const data = await response.json();
       return data?.ok ? { sensitivity: data.sensitivity, score: data.score, label: data.label } : null;
@@ -1109,7 +1221,7 @@ class GLiNERDetector {
 }
 
 const detector = new GLiNERDetector();
-const anonymizer = new VeilAnonymizer();
+const anonymizer = new AiSafePluginAnonymizer();
 
 async function syncConfiguredLocalServerUrl() {
   const url = await readConfiguredLocalServerUrl();
@@ -1135,6 +1247,29 @@ async function broadcastToTabs(message) {
   } catch { /* ignore */ }
 }
 
+const COMMAND_ACTIONS = Object.freeze({
+  'ai-safe-plugin-redact-all': 'commandRedactAll',
+  'ai-safe-plugin-toggle': 'commandToggleSite'
+});
+
+async function sendCommandToActiveTab(action) {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tabs?.[0]?.id;
+    if (typeof tabId !== 'number') return;
+    chrome.tabs.sendMessage(tabId, { action }).catch(() => { });
+  } catch { /* ignore */ }
+}
+
+if (chrome.commands?.onCommand) {
+  chrome.commands.onCommand.addListener((command) => {
+    const action = COMMAND_ACTIONS[command];
+    if (action) {
+      sendCommandToActiveTab(action);
+    }
+  });
+}
+
 async function checkServerHealthAndNotify() {
   let isHealthy = false;
   try {
@@ -1143,6 +1278,7 @@ async function checkServerHealthAndNotify() {
     if (response.ok) {
       const data = await response.json();
       isHealthy = Boolean(data?.ok);
+      aiSafePluginAuthRequired = Boolean(data?.authRequired);
     }
   } catch { /* server unreachable */ }
 
@@ -1249,6 +1385,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const isDetectionAction = request.action === 'detectPII' || request.action === 'detectPIIFast';
   if (isDetectionAction && !sender?.tab?.id) return false;
 
+  // ── Toolbar-icon badge (U1) ──
+  // Push from a content script: amber count of unredacted detections, green ✓
+  // when everything is protected, cleared when there's nothing.
+  if (request.action === 'aiSafePluginStatsPush') {
+    if (!sender?.tab?.id) return false;
+    const detected = Number(request.detected) || 0;
+    const protectedCount = Number(request.protected) || 0;
+    const pending = Math.max(0, detected - protectedCount);
+    const tabId = sender.tab.id;
+    const text = pending > 0
+      ? (pending > 99 ? '99+' : String(pending))
+      : (protectedCount > 0 ? '✓' : '');
+    chrome.action.setBadgeText({ tabId, text });
+    if (text) {
+      chrome.action.setBadgeBackgroundColor({ tabId, color: pending > 0 ? '#B45309' : '#15803D' });
+      try { chrome.action.setBadgeTextColor({ tabId, color: '#FFFFFF' }); } catch { /* older Chrome */ }
+    }
+    return false;
+  }
+
   if (request.action === 'detectPIIFast') {
     try {
       const detections = detector.detectFastLocalProtection(request.text, request.options);
@@ -1348,17 +1504,34 @@ chrome.runtime.onInstalled.addListener(() => {
     customPatterns: getDefaultCustomPatterns(),
     monitoredSelectors: DEFAULT_MONITORED_SELECTORS,
     monitoredSites: [
-      'claude.ai',
-      'gemini.google.com',
-      'chatgpt.com',
-      'chat.openai.com',
-      'copilot.microsoft.com',
-      'poe.com'
+      'chatgpt.com', 'chat.openai.com', 'claude.ai', 'gemini.google.com',
+      'copilot.microsoft.com', 'perplexity.ai', 'grok.com', 'x.ai',
+      'chat.deepseek.com', 'chat.mistral.ai', 'poe.com', 'character.ai',
+      'pi.ai', 'you.com', 'meta.ai', 'chat.qwen.ai', 'chat.qwenlm.ai',
+      'duck.ai', 'huggingface.co', 'phind.com', 't3.chat'
     ]
+  }, () => {
+    // After seeding defaults, restore any newer synced prefs (e.g. on reinstall).
+    applySyncedSettingsIfNewer();
   });
   detector.warmUpIfAvailable().catch(() => { });
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  applySyncedSettingsIfNewer();
   detector.warmUpIfAvailable().catch(() => { });
+});
+
+// Live cross-device apply: when another device updates synced settings, import them.
+chrome.storage.onChanged.addListener((_changes, areaName) => {
+  if (areaName === 'sync') applySyncedSettingsIfNewer();
+});
+
+// Clear the toolbar badge (U1) when a tab navigates — the content script will
+// re-push counts for the new page. `status === 'loading'` is available without
+// the optional "tabs" permission.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading') {
+    chrome.action.setBadgeText({ tabId, text: '' });
+  }
 });

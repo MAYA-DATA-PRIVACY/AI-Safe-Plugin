@@ -1,7 +1,7 @@
 {
-  "name": "veil",
+  "name": "ai-safe-plugin",
   "version": "1.2.8",
-  "description": "Real-time PII detection and redaction for AI chat interfaces. Powered by a local GLiNER2 model — your data never leaves your machine.",
+  "description": "Real-time PII detection and redaction for AI chat interfaces. Local GLiNER2 detection by default. Optional Maya anonymisation only when you enable it.",
   "scripts": {
     "setup": "uv sync --frozen --dev --no-install-project --python 3.11",
     "download-gliner2": "uv run --no-sync python server/gliner2_server.py --download-only",
@@ -11,7 +11,7 @@
     "remove-native-host-linux": "bash server/native-host/uninstall_linux.sh",
     "install-autostart-linux": "bash server/autostart/install_linux.sh",
     "remove-autostart-linux": "bash server/autostart/uninstall_linux.sh",
-    "status-autostart-linux": "systemctl --user --no-pager status veil-gliner-server.service",
+    "status-autostart-linux": "systemctl --user --no-pager status ai-safe-plugin-gliner-server.service",
     "build": "echo 'No build step — load extension/ folder directly in Chrome'",
     "build:zip": "bash scripts/build_crx.sh",
     "build:backend-bundle": "uv run --no-sync python scripts/build_backend_bundle.py",
@@ -29,17 +29,17 @@
     "dev": "echo 'Load the extension/ folder in Chrome via chrome://extensions (Developer mode)'"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2",
-    "eslint": "^10.1.0",
-    "prettier": "^3.0.3"
+    "@playwright/test": "^1.59.1",
+    "eslint": "^10.3.0",
+    "prettier": "^3.8.3"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Maya-Data-Privacy/Veil.git"
+    "url": "https://github.com/Maya-Data-Privacy/AI-Safe-Plugin.git"
   },
-  "homepage": "https://maya-data-privacy.github.io/Veil/",
+  "homepage": "https://maya-data-privacy.github.io/AI-Safe-Plugin/",
   "bugs": {
-    "url": "https://github.com/Maya-Data-Privacy/Veil/issues"
+    "url": "https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/issues"
   },
   "keywords": [
     "chrome-extension",

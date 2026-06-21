@@ -4,22 +4,16 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: Existing version tag to publish (for example, v1.2.0)
-        required: true
-        type: string
 
 permissions:
   contents: write
 
 env:
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  RELEASE_TAG: ${{ github.ref_name }}
 
 jobs:
   verify-release-version:
-    name: Verify Release Version
+    name: Verify Release
     runs-on: ubuntu-latest
     outputs:
       tag_name: ${{ steps.release_meta.outputs.tag_name }}
@@ -35,6 +29,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: '20'
+          cache: npm
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.10.7'
+          python-version: '3.11'
+          enable-cache: true
+          cache-python: true
 
       - name: Resolve release metadata
         id: release_meta
@@ -54,6 +57,25 @@ jobs:
 
           echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
           echo "release_version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag is reachable from main
+        env:
+          TAG_NAME: ${{ steps.release_meta.outputs.tag_name }}
+        run: |
+          git fetch --force origin main:refs/remotes/origin/main
+          TAG_COMMIT="$(git rev-list -n 1 "$TAG_NAME")"
+
+          if ! git merge-base --is-ancestor "$TAG_COMMIT" origin/main; then
+            echo "Tag '$TAG_NAME' points to $TAG_COMMIT, which is not reachable from origin/main." >&2
+            exit 1
+          fi
+
+      - name: Verify no conflict markers are present
+        run: |
+          if git grep -n -I -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
+            echo "Conflict markers were found in the release source." >&2
+            exit 1
+          fi
 
       - name: Verify release metadata matches repository versions
         env:
@@ -93,71 +115,36 @@ jobs:
             exit 1
           fi
 
-      - name: Summarize manual release inputs
+      - name: Install test dependencies
+        run: |
+          npm ci
+          uv sync --frozen --dev --no-install-project
+
+      - name: Run JavaScript unit tests
+        run: npm run test:unit
+
+      - name: Run Python tests
+        run: uv run --no-sync pytest tests/server/ -v
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run end-to-end tests
+        run: xvfb-run -a npm run test:e2e
+
+      - name: Summarize release inputs
         run: |
           {
-            echo "## Manual Release"
+            echo "## Release"
             echo ""
             echo "- tag_name: \`${{ steps.release_meta.outputs.tag_name }}\`"
             echo "- release_version: \`${{ steps.release_meta.outputs.release_version }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  test-js:
-    name: JavaScript Tests
-    runs-on: ubuntu-latest
-    needs: verify-release-version
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.verify-release-version.outputs.tag_name }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: npm
-      - run: npm ci
-      - run: npm run test:unit
-
-  test-python:
-    name: Python Tests
-    runs-on: ubuntu-latest
-    needs: verify-release-version
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.verify-release-version.outputs.tag_name }}
-      - uses: astral-sh/setup-uv@v7
-        with:
-          version: '0.10.7'
-          python-version: '3.11'
-          enable-cache: true
-          cache-python: true
-      - run: uv sync --frozen --dev --no-install-project
-      - run: uv run --no-sync pytest tests/server/ -v
-
-  test-e2e:
-    name: End-to-End Tests
-    runs-on: ubuntu-latest
-    needs: verify-release-version
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.verify-release-version.outputs.tag_name }}
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: xvfb-run -a npm run test:e2e
-
   build-windows-installer:
     name: Build Windows Setup
     runs-on: windows-latest
-    needs:
-      - verify-release-version
-      - test-js
-      - test-python
-      - test-e2e
+    needs: verify-release-version
     steps:
       - uses: actions/checkout@v6
         with:
@@ -177,11 +164,11 @@ jobs:
 
       - name: Build Windows installer staging
         env:
-          VEIL_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
-          VEIL_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
         shell: pwsh
         run: |
-          $env:VEIL_RELEASE_PUBLISHED_AT = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $env:AI_SAFE_PLUGIN_RELEASE_PUBLISHED_AT = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           uv run --no-sync python scripts/build_windows_installer.py
 
       - name: Install Inno Setup
@@ -191,13 +178,13 @@ jobs:
       - name: Compile Windows installer
         shell: pwsh
         run: |
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\VeilSetup.iss"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\windows\AISafePluginSetup.iss"
 
       - name: Upload Windows installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: veil-windows-setup
-          path: dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
+          name: ai-safe-plugin-windows-setup
+          path: dist/AISafePluginSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
           if-no-files-found: error
 
   publish-release-assets:
@@ -205,9 +192,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - verify-release-version
-      - test-js
-      - test-python
-      - test-e2e
       - build-windows-installer
     permissions:
       contents: write
@@ -238,30 +222,49 @@ jobs:
           uv sync --frozen --no-dev --no-install-project
 
       - name: Build extension ZIP
-        run: bash scripts/build_crx.sh dist/veil-extension.zip
+        run: bash scripts/build_crx.sh dist/ai-safe-plugin-extension.zip
 
       - name: Build backend release bundle
         env:
-          VEIL_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
-          VEIL_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_TAG: ${{ needs.verify-release-version.outputs.tag_name }}
+          AI_SAFE_PLUGIN_RELEASE_HTML_URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.verify-release-version.outputs.tag_name }}
         run: |
-          export VEIL_RELEASE_PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export AI_SAFE_PLUGIN_RELEASE_PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           uv run --no-sync python scripts/build_backend_bundle.py
 
       - name: Build model bundle (fp16 ONNX from HuggingFace)
         run: uv run --no-sync python scripts/build_model_bundle.py
 
       - name: Rename extension ZIP with version
-        run: mv dist/veil-extension.zip "dist/veil-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
+        run: mv dist/ai-safe-plugin-extension.zip "dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
 
       - name: Download Windows installer artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
-          name: veil-windows-setup
+          name: ai-safe-plugin-windows-setup
           path: dist
 
       - name: Create stable Windows installer alias
-        run: cp "dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" dist/VeilSetup.exe
+        run: cp "dist/AISafePluginSetup-${{ needs.verify-release-version.outputs.release_version }}.exe" dist/AISafePluginSetup.exe
+
+      - name: Generate asset checksums
+        working-directory: dist
+        env:
+          RELEASE_VERSION: ${{ needs.verify-release-version.outputs.release_version }}
+        run: |
+          sha256sum \
+            "ai-safe-plugin-extension-${RELEASE_VERSION}.zip" \
+            install.sh \
+            install.ps1 \
+            uninstall.sh \
+            uninstall.ps1 \
+            ai-safe-plugin-backend-unix.tar.gz \
+            ai-safe-plugin-backend-windows.zip \
+            ai-safe-plugin-model-fp16.tar.gz \
+            "AISafePluginSetup-${RELEASE_VERSION}.exe" \
+            AISafePluginSetup.exe \
+            > SHA256SUMS
+          cat SHA256SUMS
 
       - name: Compose release notes
         env:
@@ -274,22 +277,23 @@ jobs:
           ' CHANGELOG.md > release-notes.md
 
       - name: Upload release assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.verify-release-version.outputs.tag_name }}
-          name: "Veil ${{ needs.verify-release-version.outputs.tag_name }}"
+          name: "AI-Safe Plugin ${{ needs.verify-release-version.outputs.tag_name }}"
           body_path: release-notes.md
           draft: false
           prerelease: ${{ contains(needs.verify-release-version.outputs.tag_name, '-') }}
           fail_on_unmatched_files: true
           files: |
-            dist/veil-extension-${{ needs.verify-release-version.outputs.release_version }}.zip
+            dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}.zip
             dist/install.sh
             dist/install.ps1
             dist/uninstall.sh
             dist/uninstall.ps1
-            dist/veil-backend-unix.tar.gz
-            dist/veil-backend-windows.zip
-            dist/veil-model-fp16.tar.gz
-            dist/VeilSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
-            dist/VeilSetup.exe
+            dist/ai-safe-plugin-backend-unix.tar.gz
+            dist/ai-safe-plugin-backend-windows.zip
+            dist/ai-safe-plugin-model-fp16.tar.gz
+            dist/AISafePluginSetup-${{ needs.verify-release-version.outputs.release_version }}.exe
+            dist/AISafePluginSetup.exe
+            dist/SHA256SUMS

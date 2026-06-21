@@ -7,8 +7,8 @@ VENV_PYTHON="${REPO_DIR}/.venv/bin/python"
 HOST_SCRIPT="${REPO_DIR}/server/native_host.py"
 
 if [[ ! -x "${VENV_PYTHON}" ]]; then
-  echo "Veil native host runtime is missing: ${VENV_PYTHON}" >&2
-  echo "Re-run the Veil installer to restore the managed runtime." >&2
+  echo "AI-Safe Plugin native host runtime is missing: ${VENV_PYTHON}" >&2
+  echo "Re-run the AI-Safe Plugin installer to restore the managed runtime." >&2
   exit 1
 fi
 

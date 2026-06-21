@@ -1,7 +1,7 @@
 [project]
-name = "veil-local-runtime"
+name = "ai-safe-plugin-local-runtime"
 version = "1.2.8"
-description = "Local runtime and native-host support for the Veil browser extension."
+description = "Local runtime and native-host support for the AI-Safe Plugin browser extension."
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [

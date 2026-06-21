@@ -1,4 +1,4 @@
-function Invoke-VeilCommand {
+function Invoke-AiSafePluginCommand {
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$Command,
@@ -18,7 +18,53 @@ function Invoke-VeilCommand {
     }
 }
 
-function Get-VeilPythonVersion {
+# Verify a downloaded asset against the release's SHA256SUMS file. Returns $true
+# when the checksum matches, when SHA256SUMS is unavailable (older releases), or
+# when the asset is not listed (warn-and-continue). Returns $false only on a real
+# mismatch, so callers can decide whether to abort (backend) or fall back (model).
+function Test-AiSafePluginAssetChecksum {
+    param(
+        [Parameter(Mandatory = $true)][string]$AssetPath,
+        [Parameter(Mandatory = $true)][string]$ReleaseBase,
+        [Parameter(Mandatory = $true)][string]$TempRoot
+    )
+
+    $assetName = Split-Path -Leaf $AssetPath
+    $sumsFile = Join-Path $TempRoot "SHA256SUMS"
+
+    if (-not (Test-Path -LiteralPath $sumsFile)) {
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/SHA256SUMS" -OutFile $sumsFile
+        }
+        catch {
+            Write-Host "Warning: SHA256SUMS not available from release; skipping checksum verification for $assetName."
+            return $true
+        }
+    }
+
+    $expected = $null
+    foreach ($line in Get-Content -LiteralPath $sumsFile) {
+        $parts = $line -split '\s+\*?'
+        if ($parts.Length -ge 2 -and $parts[-1] -eq $assetName) {
+            $expected = $parts[0]
+            break
+        }
+    }
+    if (-not $expected) {
+        Write-Host "Warning: $assetName not listed in SHA256SUMS; skipping verification."
+        return $true
+    }
+
+    $actual = (Get-FileHash -LiteralPath $AssetPath -Algorithm SHA256).Hash
+    if ($actual -ieq $expected) {
+        Write-Host "Checksum verified: $assetName"
+        return $true
+    }
+    Write-Host "Checksum verification failed for $assetName."
+    return $false
+}
+
+function Get-AiSafePluginPythonVersion {
     param(
         [Parameter(Mandatory = $true)]
         [string]$PythonPath
@@ -36,14 +82,52 @@ function Get-VeilPythonVersion {
     }
 }
 
-function Get-VeilScheduledTaskNames {
+function Get-AiSafePluginScheduledTaskNames {
     return @(
+        "AISafePluginGLiNER2",
+        "AI-Safe Plugin GLiNER Server",
         "Veil GLiNER Server",
         "PrivacyShieldGLiNER2"
     )
 }
 
-function Stop-VeilScheduledTask {
+function Resolve-AiSafePluginExtensionIds {
+    param(
+        [string]$ExtensionId,
+        [string[]]$ExtensionIds = @(),
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultExtensionId
+    )
+
+    $resolved = New-Object System.Collections.Generic.List[string]
+    $rawValues = @()
+    if (-not [string]::IsNullOrWhiteSpace($ExtensionId)) {
+        $rawValues += $ExtensionId
+    }
+    foreach ($value in $ExtensionIds) {
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $rawValues += $value
+        }
+    }
+    $rawValues += $DefaultExtensionId
+
+    foreach ($raw in $rawValues) {
+        foreach ($part in ([string]$raw -split '[,;\s]+')) {
+            $id = $part.Trim().ToLowerInvariant()
+            if ([string]::IsNullOrWhiteSpace($id)) { continue }
+            if ($id -notmatch '^[a-p]{32}$') {
+                throw "Invalid Chrome extension ID: $part"
+            }
+            if (-not $resolved.Contains($id)) {
+                [void]$resolved.Add($id)
+            }
+        }
+    }
+
+    return [string[]]$resolved.ToArray()
+}
+
+function Stop-AiSafePluginScheduledTask {
     param(
         [Parameter(Mandatory = $true)]
         [string]$TaskName
@@ -58,7 +142,7 @@ function Stop-VeilScheduledTask {
     return $true
 }
 
-function Start-VeilScheduledTask {
+function Start-AiSafePluginScheduledTask {
     param(
         [Parameter(Mandatory = $true)]
         [string]$TaskName
@@ -73,7 +157,7 @@ function Start-VeilScheduledTask {
     return $true
 }
 
-function Test-VeilServerHealthy {
+function Test-AiSafePluginServerHealthy {
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8765/health" -TimeoutSec 2
         return $response.StatusCode -ge 200 -and $response.StatusCode -lt 300
@@ -83,7 +167,7 @@ function Test-VeilServerHealthy {
     }
 }
 
-function Test-VeilPortOpen {
+function Test-AiSafePluginPortOpen {
     $client = New-Object System.Net.Sockets.TcpClient
     try {
         $asyncResult = $client.BeginConnect("127.0.0.1", 8765, $null, $null)
@@ -102,7 +186,64 @@ function Test-VeilPortOpen {
     }
 }
 
-function Start-VeilServerNow {
+function Test-AiSafePluginProcessRunning {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ProcessId
+    )
+
+    try {
+        return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-AiSafePluginServerProcessState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir
+    )
+
+    $statePath = Join-Path $InstallDir ".runtime\server_process.json"
+    if (-not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        return $null
+    }
+
+    try {
+        return Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-AiSafePluginServerProcessStarting {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$InstallDir
+    )
+
+    $state = Get-AiSafePluginServerProcessState -InstallDir $InstallDir
+    if ($null -eq $state) {
+        return $false
+    }
+
+    $processIdText = [string]($state.pid)
+    if ([string]::IsNullOrWhiteSpace($processIdText)) {
+        return $false
+    }
+
+    $serverProcessId = 0
+    if (-not [int]::TryParse($processIdText, [ref]$serverProcessId)) {
+        return $false
+    }
+
+    return Test-AiSafePluginProcessRunning -ProcessId $serverProcessId
+}
+
+function Start-AiSafePluginServerNow {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir
@@ -111,18 +252,23 @@ function Start-VeilServerNow {
     $venvPython = Join-Path $InstallDir ".venv\Scripts\python.exe"
     $serverScript = Join-Path $InstallDir "server\gliner2_server.py"
 
-    if (Test-VeilServerHealthy) {
-        Write-Host "Veil server already healthy; skipping immediate start."
+    if (Test-AiSafePluginServerHealthy) {
+        Write-Host "AI-Safe Plugin server already healthy; skipping immediate start."
         return $true
     }
 
-    if (Test-VeilPortOpen) {
-        Write-Host "Warning: port 8765 is already in use by another local process. Skipping immediate Veil start for this session."
+    if (Test-AiSafePluginServerProcessStarting -InstallDir $InstallDir) {
+        Write-Host "AI-Safe Plugin server is already starting for the current session."
+        return $true
+    }
+
+    if (Test-AiSafePluginPortOpen) {
+        Write-Host "Warning: port 8765 is already in use by another local process. Skipping immediate AI-Safe Plugin start for this session."
         return $false
     }
 
     if (-not (Test-Path -LiteralPath $venvPython) -or -not (Test-Path -LiteralPath $serverScript)) {
-        Write-Host "Warning: Veil installed, but the managed runtime was not found for an immediate start."
+        Write-Host "Warning: AI-Safe Plugin installed, but the managed runtime was not found for an immediate start."
         return $false
     }
 
@@ -133,33 +279,43 @@ function Start-VeilServerNow {
     $env:XDG_CACHE_HOME = Join-Path $InstallDir ".runtime\cache\xdg"
 
     try {
-        Start-Process -FilePath $venvPython -ArgumentList @($serverScript, "--host", "127.0.0.1", "--port", "8765") -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
+        Start-Process -FilePath $venvPython -ArgumentList @("-u", $serverScript, "--host", "127.0.0.1", "--port", "8765") -WorkingDirectory $InstallDir -WindowStyle Hidden | Out-Null
     }
     catch {
-        Write-Host "Warning: Veil installed successfully, but the server could not be started immediately."
+        Write-Host "Warning: AI-Safe Plugin installed successfully, but the server could not be started immediately."
         return $false
     }
 
-    for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
+    for ($attempt = 0; $attempt -lt 60; $attempt += 1) {
         Start-Sleep -Milliseconds 500
-        if (Test-VeilServerHealthy) {
-            Write-Host "Veil server started for the current session."
+        if (Test-AiSafePluginServerHealthy) {
+            Write-Host "AI-Safe Plugin server started for the current session."
             return $true
         }
     }
 
-    Write-Host "Warning: Veil installed successfully, but the server is still starting in the background."
+    if (Test-AiSafePluginServerProcessStarting -InstallDir $InstallDir) {
+        Write-Host "AI-Safe Plugin server is still loading GLiNER2 for the current session."
+        return $true
+    }
+
+    if (Test-AiSafePluginPortOpen) {
+        Write-Host "AI-Safe Plugin server opened port 8765 and is still finishing startup."
+        return $true
+    }
+
+    Write-Host "Warning: AI-Safe Plugin installed successfully, but the server was not detected after launch."
     return $false
 }
 
-function Stop-VeilWindowsProcesses {
+function Stop-AiSafePluginWindowsProcesses {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir
     )
 
-    foreach ($taskName in Get-VeilScheduledTaskNames) {
-        Stop-VeilScheduledTask -TaskName $taskName | Out-Null
+    foreach ($taskName in Get-AiSafePluginScheduledTaskNames) {
+        Stop-AiSafePluginScheduledTask -TaskName $taskName | Out-Null
     }
 
     $patterns = @(
@@ -192,7 +348,7 @@ function Stop-VeilWindowsProcesses {
     }
 }
 
-function Remove-VeilInstallContents {
+function Remove-AiSafePluginInstallContents {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir
@@ -220,7 +376,7 @@ function Remove-VeilInstallContents {
     }
 }
 
-function Test-VeilModelFilesPresent {
+function Test-AiSafePluginModelFilesPresent {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ModelDir
@@ -236,14 +392,14 @@ function Test-VeilModelFilesPresent {
     )
 }
 
-function Test-VeilModelPresent {
+function Test-AiSafePluginModelPresent {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir
     )
 
     $bundledModelDir = Join-Path $InstallDir ".runtime\cache\model\model"
-    if (Test-VeilModelFilesPresent -ModelDir $bundledModelDir) {
+    if (Test-AiSafePluginModelFilesPresent -ModelDir $bundledModelDir) {
         return $true
     }
 
@@ -253,7 +409,7 @@ function Test-VeilModelPresent {
     }
 
     foreach ($snapshot in Get-ChildItem -LiteralPath $snapshotsDir -Directory -ErrorAction SilentlyContinue) {
-        if (Test-VeilModelFilesPresent -ModelDir $snapshot.FullName) {
+        if (Test-AiSafePluginModelFilesPresent -ModelDir $snapshot.FullName) {
             return $true
         }
     }
@@ -261,7 +417,7 @@ function Test-VeilModelPresent {
     return $false
 }
 
-function Write-VeilReleaseMetadata {
+function Write-AiSafePluginReleaseMetadata {
     param(
         [Parameter(Mandatory = $true)]
         [string]$SourcePath,
@@ -297,7 +453,7 @@ function Write-VeilReleaseMetadata {
     $releaseMeta | ConvertTo-Json | Set-Content -LiteralPath $TargetPath -Encoding UTF8
 }
 
-function Ensure-VeilUv {
+function Ensure-AiSafePluginUv {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir,
@@ -362,7 +518,7 @@ function Ensure-VeilUv {
     return $uvExe
 }
 
-function Sync-VeilRuntime {
+function Sync-AiSafePluginRuntime {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir,
@@ -383,7 +539,7 @@ function Sync-VeilRuntime {
 
     $venvVersion = $null
     if (Test-Path -LiteralPath $venvPython) {
-        $venvVersion = Get-VeilPythonVersion -PythonPath $venvPython
+        $venvVersion = Get-AiSafePluginPythonVersion -PythonPath $venvPython
         if (-not $venvVersion -or $venvVersion.Major -ne 3 -or $venvVersion.Minor -ne 11) {
             Remove-Item -LiteralPath $venvDir -Recurse -Force
         }
@@ -399,8 +555,8 @@ function Sync-VeilRuntime {
         $env:UV_PROJECT_ENVIRONMENT = $venvDir
         $env:UV_LINK_MODE = "copy"
 
-        Invoke-VeilCommand -Command @($UvExe, "python", "install", $PythonVersion, "--install-dir", $env:UV_PYTHON_INSTALL_DIR) -FailureMessage "Failed to install Veil's managed Python runtime"
-        Invoke-VeilCommand -Command @($UvExe, "sync", "--frozen", "--no-dev", "--no-install-project", "--directory", $InstallDir, "--python", $PythonVersion, "--managed-python") -FailureMessage "Failed to sync the Veil runtime from uv.lock"
+        Invoke-AiSafePluginCommand -Command @($UvExe, "python", "install", $PythonVersion, "--install-dir", $env:UV_PYTHON_INSTALL_DIR) -FailureMessage "Failed to install AI-Safe Plugin's managed Python runtime"
+        Invoke-AiSafePluginCommand -Command @($UvExe, "sync", "--frozen", "--no-dev", "--no-install-project", "--directory", $InstallDir, "--python", $PythonVersion, "--managed-python") -FailureMessage "Failed to sync the AI-Safe Plugin runtime from uv.lock"
     }
     finally {
         $env:UV_CACHE_DIR = $previousCache
@@ -410,7 +566,7 @@ function Sync-VeilRuntime {
     }
 }
 
-function Assert-VeilBundledPayload {
+function Assert-AiSafePluginBundledPayload {
     param(
         [Parameter(Mandatory = $true)]
         [string]$InstallDir
@@ -426,39 +582,46 @@ function Assert-VeilBundledPayload {
 
     foreach ($path in $requiredPaths) {
         if (-not (Test-Path -LiteralPath $path)) {
-            throw "Veil setup is missing a required bundled file: $path"
+            throw "AI-Safe Plugin setup is missing a required bundled file: $path"
         }
     }
 }
 
-function global:Install-Veil {
+function global:Install-AiSafePlugin {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]
         [string]$ExtensionId,
-        [string]$InstallDir = $env:VEIL_INSTALL_DIR,
+        [string[]]$ExtensionIds = @(),
+        [string]$InstallDir = $env:AI_SAFE_PLUGIN_INSTALL_DIR,
         [switch]$RecreateVenv,
         [switch]$UseExistingBundle,
-        [string]$UvVersion = $env:VEIL_UV_VERSION,
-        [string]$UvPath = $env:VEIL_UV_PATH
+        [string]$UvVersion = $env:AI_SAFE_PLUGIN_UV_VERSION,
+        [string]$UvPath = $env:AI_SAFE_PLUGIN_UV_PATH
     )
 
-    $repoSlug = "Maya-Data-Privacy/Veil"
+    $repoSlug = "Maya-Data-Privacy/AI-Safe-Plugin"
     $releaseBase = "https://github.com/$repoSlug/releases/latest/download"
-    $assetName = "veil-backend-windows.zip"
+    $assetName = "ai-safe-plugin-backend-windows.zip"
     $defaultAnonEndpoint = "https://app.mayadataprivacy.in/mdp/engine/anonymization"
+    $defaultExtensionId = "aggkonihfabdcbgomkfecjhdolddfabe"
     $pinnedUvVersion = "0.10.7"
     $pinnedPythonVersion = "3.11.11"
+
+    $resolvedExtensionIds = Resolve-AiSafePluginExtensionIds -ExtensionId $ExtensionId -ExtensionIds $ExtensionIds -DefaultExtensionId $defaultExtensionId
+    if ([string]::IsNullOrWhiteSpace($ExtensionId) -and $ExtensionIds.Count -eq 0) {
+        Write-Host "No extension id supplied; using the pinned AI-Safe Plugin id $defaultExtensionId."
+    }
 
     if ([string]::IsNullOrWhiteSpace($UvVersion)) {
         $UvVersion = $pinnedUvVersion
     }
 
     if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-        $InstallDir = Join-Path $env:LOCALAPPDATA "Veil"
+        # Hyphenated, space-free folder keeps .bat/registry paths quote-safe.
+        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe-Plugin"
     }
 
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("veil-install-" + [guid]::NewGuid().ToString("N"))
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-safe-plugin-install-" + [guid]::NewGuid().ToString("N"))
     $archivePath = Join-Path $tempRoot $assetName
     $extractDir = Join-Path $tempRoot "extract"
 
@@ -477,17 +640,20 @@ function global:Install-Veil {
             $null = $LASTEXITCODE
         }
 
-        Stop-VeilWindowsProcesses -InstallDir $InstallDir
+        Stop-AiSafePluginWindowsProcesses -InstallDir $InstallDir
         if ($UseExistingBundle) {
-            Write-Host "Using the Veil files already installed by VeilSetup.exe..."
-            Assert-VeilBundledPayload -InstallDir $InstallDir
+            Write-Host "Using the AI-Safe Plugin files already installed by AISafePluginSetup.exe..."
+            Assert-AiSafePluginBundledPayload -InstallDir $InstallDir
         }
         else {
-            Write-Host "Downloading Veil backend bundle..."
+            Write-Host "Downloading AI-Safe Plugin backend bundle..."
             Invoke-WebRequest -UseBasicParsing -Uri "$releaseBase/$assetName" -OutFile $archivePath
+            if (-not (Test-AiSafePluginAssetChecksum -AssetPath $archivePath -ReleaseBase $releaseBase -TempRoot $tempRoot)) {
+                throw "Backend bundle checksum verification failed. Aborting install."
+            }
             Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
 
-            Remove-VeilInstallContents -InstallDir $InstallDir
+            Remove-AiSafePluginInstallContents -InstallDir $InstallDir
             Copy-Item -Path (Join-Path $extractDir "*") -Destination $InstallDir -Recurse -Force
         }
 
@@ -504,10 +670,10 @@ function global:Install-Veil {
 
         $runtimeDir = Join-Path $InstallDir ".runtime"
         New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
-        Write-VeilReleaseMetadata -SourcePath (Join-Path $runtimeDir "bundle_release.json") -TargetPath (Join-Path $runtimeDir "bundle_release.json") -RepoSlug $repoSlug
+        Write-AiSafePluginReleaseMetadata -SourcePath (Join-Path $runtimeDir "bundle_release.json") -TargetPath (Join-Path $runtimeDir "bundle_release.json") -RepoSlug $repoSlug
 
-        $uvExe = Ensure-VeilUv -InstallDir $InstallDir -UvVersion $UvVersion -TempRoot $tempRoot -UvPath $UvPath
-        Sync-VeilRuntime -InstallDir $InstallDir -UvExe $uvExe -PythonVersion $pinnedPythonVersion -RecreateVenv:$RecreateVenv
+        $uvExe = Ensure-AiSafePluginUv -InstallDir $InstallDir -UvVersion $UvVersion -TempRoot $tempRoot -UvPath $UvPath
+        Sync-AiSafePluginRuntime -InstallDir $InstallDir -UvExe $uvExe -PythonVersion $pinnedPythonVersion -RecreateVenv:$RecreateVenv
 
         # Set cache env vars so the server and pre-download use the same location.
         $env:HF_HOME = Join-Path $InstallDir ".runtime\cache\hf"
@@ -516,13 +682,13 @@ function global:Install-Veil {
         $env:XDG_CACHE_HOME = Join-Path $InstallDir ".runtime\cache\xdg"
 
         # Download pre-packaged fp16 model from GitHub Release (faster than HF Hub).
-        $modelAsset = "veil-model-fp16.tar.gz"
+        $modelAsset = "ai-safe-plugin-model-fp16.tar.gz"
         $modelUrl = "$releaseBase/$modelAsset"
         $modelArchive = Join-Path $tempRoot $modelAsset
         $modelDest = Join-Path $InstallDir ".runtime\cache\model"
 
         Write-Host ""
-        if (Test-VeilModelPresent -InstallDir $InstallDir) {
+        if (Test-AiSafePluginModelPresent -InstallDir $InstallDir) {
             Write-Host "Existing GLiNER2 model cache found; skipping download."
         }
         else {
@@ -531,12 +697,15 @@ function global:Install-Veil {
                 # Use .NET WebClient for large downloads — Invoke-WebRequest is very slow for big files
                 $wc = New-Object System.Net.WebClient
                 $wc.DownloadFile($modelUrl, $modelArchive)
+                if (-not (Test-AiSafePluginAssetChecksum -AssetPath $modelArchive -ReleaseBase $releaseBase -TempRoot $tempRoot)) {
+                    throw "Model checksum verification failed."
+                }
                 New-Item -ItemType Directory -Force -Path $modelDest | Out-Null
                 tar -xzf $modelArchive -C $modelDest
                 Write-Host "Model extracted to $modelDest"
             }
             catch {
-                Write-Host "Bundled model not found in release; downloading from HuggingFace Hub..."
+                Write-Host "Bundled model unavailable or failed verification; downloading from HuggingFace Hub..."
                 $venvPythonPreDl = Join-Path $InstallDir ".venv\Scripts\python.exe"
                 $serverScriptPreDl = Join-Path $InstallDir "server\gliner2_server.py"
                 try {
@@ -548,27 +717,31 @@ function global:Install-Veil {
             }
         }
 
-        Invoke-VeilCommand -Command @((Join-Path $InstallDir "server\native-host\install_windows.bat"), $ExtensionId) -FailureMessage "Failed to register the Veil native host"
+        # Build the command as a FLAT array [batPath, id1, id2, ...]. Wrapping the
+        # path in @() first makes `+` array concatenation; `(string) + (array)` would
+        # instead string-concat into a single bogus token and break the call.
+        $nativeHostCommand = @(Join-Path $InstallDir "server\native-host\install_windows.bat") + $resolvedExtensionIds
+        Invoke-AiSafePluginCommand -Command $nativeHostCommand -FailureMessage "Failed to register the AI-Safe Plugin native host"
 
         $autostartRegistered = $false
         try {
-            Invoke-VeilCommand -Command @((Join-Path $InstallDir "server\autostart\install_windows.bat")) -FailureMessage "Failed to register Veil autostart"
+            Invoke-AiSafePluginCommand -Command @((Join-Path $InstallDir "server\autostart\install_windows.bat")) -FailureMessage "Failed to register AI-Safe Plugin autostart"
             $autostartRegistered = $true
         }
         catch {
             Write-Host $_.Exception.Message
-            Write-Host "Warning: Veil install completed, but autostart could not be registered. You can still start the server from the extension now, or rerun the installer in an Administrator PowerShell later."
+            Write-Host "Warning: AI-Safe Plugin install completed, but autostart could not be registered. You can still start the server from the extension now, or rerun the installer in an Administrator PowerShell later."
         }
 
         if ($autostartRegistered) {
-            Write-Host "Veil autostart is configured for the next sign-in."
+            Write-Host "AI-Safe Plugin autostart is configured for the next sign-in."
         }
-        Start-VeilServerNow -InstallDir $InstallDir | Out-Null
+        Start-AiSafePluginServerNow -InstallDir $InstallDir | Out-Null
 
         Write-Host ""
-        Write-Host "Veil install complete."
+        Write-Host "AI-Safe Plugin install complete."
         Write-Host "Install directory: $InstallDir"
-        Write-Host "Extension ID: $ExtensionId"
+        Write-Host "Extension IDs: $($resolvedExtensionIds -join ', ')"
     }
     finally {
         if (Test-Path $tempRoot) {
@@ -580,12 +753,13 @@ function global:Install-Veil {
 # ── Auto-execute when run directly (not dot-sourced) ──
 # Usage:
 #   One-command install (PowerShell):
-#     powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id YOUR_EXTENSION_ID
+#     powershell -ExecutionPolicy Bypass -File install.ps1
 #   Or via irm:
-#     $env:VEIL_EXTENSION_ID='YOUR_EXTENSION_ID'; irm https://github.com/Maya-Data-Privacy/Veil/releases/latest/download/install.ps1 | iex
+#     irm https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.ps1 | iex
 if ($MyInvocation.InvocationName -ne '.') {
     $extId = $null
     $installDir = $null
+    $extIds = @()
     $recreate = $false
     $useExistingBundle = $false
 
@@ -593,6 +767,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         switch ($args[$i]) {
             '--extension-id' { $extId = $args[++$i] }
             '-ExtensionId'   { $extId = $args[++$i] }
+            '--extension-ids' { $extIds += $args[++$i] }
+            '-ExtensionIds'   { $extIds += $args[++$i] }
             '--install-dir'  { $installDir = $args[++$i] }
             '-InstallDir'    { $installDir = $args[++$i] }
             '--recreate-venv' { $recreate = $true }
@@ -602,24 +778,12 @@ if ($MyInvocation.InvocationName -ne '.') {
     }
 
     if ([string]::IsNullOrWhiteSpace($extId)) {
-        $extId = $env:VEIL_EXTENSION_ID
+        $extId = $env:AI_SAFE_PLUGIN_EXTENSION_ID
     }
 
-    if ([string]::IsNullOrWhiteSpace($extId)) {
-        # No extension ID — show usage and make the function available for manual call
-        Write-Host "Usage:" -ForegroundColor Yellow
-        Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id <EXTENSION_ID>" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "Or via irm (two ways):" -ForegroundColor Yellow
-        Write-Host '  $env:VEIL_EXTENSION_ID="YOUR_ID"; irm .../install.ps1 | iex' -ForegroundColor Cyan
-        Write-Host '  irm .../install.ps1 | iex; Install-Veil -ExtensionId "YOUR_ID"' -ForegroundColor Cyan
-        # Don't exit — let the function remain available for the user to call next
-        return
-    }
-
-    $params = @{ ExtensionId = $extId }
+    $params = @{ ExtensionId = $extId; ExtensionIds = $extIds }
     if (-not [string]::IsNullOrWhiteSpace($installDir)) { $params.InstallDir = $installDir }
     if ($recreate) { $params.RecreateVenv = $true }
     if ($useExistingBundle) { $params.UseExistingBundle = $true }
-    Install-Veil @params
+    Install-AiSafePlugin @params
 }

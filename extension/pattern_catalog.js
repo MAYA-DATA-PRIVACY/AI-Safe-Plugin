@@ -1,4 +1,4 @@
-(function initVeilPatternCatalog(root) {
+(function initAiSafePluginPatternCatalog(root) {
   const LEGACY_OPENAI_KEY_PATTERN = '\\bsk-[A-Za-z0-9]{20,}\\b';
 
   const DEFAULT_CUSTOM_PATTERNS = Object.freeze([
@@ -271,16 +271,139 @@
     return [...mergedDefaults, ...extras, ...customOnly];
   }
 
+  // Labels too dangerous to ever add to a per-site "ignore" allowlist (U3). The
+  // Ignore action is not offered for these — silently allowlisting a secret would
+  // be a footgun.
+  const HIGH_RISK_LABELS = Object.freeze([
+    'ssn', 'credit_card', 'private_key', 'api_key', 'jwt', 'connection_string', 'aadhaar'
+  ]);
+
+  // Drop ignored-value entries older than ttlMs. Pure: returns a new array.
+  function pruneIgnoredByTtl(entries, ttlMs, now = Date.now()) {
+    if (!Array.isArray(entries)) return [];
+    const cutoff = now - Number(ttlMs);
+    return entries.filter((e) => e && typeof e.addedAt === 'number' && e.addedAt >= cutoff);
+  }
+
+  // Keep at most `max` entries, evicting the oldest (FIFO) from the front. Pure.
+  function capFifo(entries, max) {
+    if (!Array.isArray(entries)) return [];
+    const limit = Math.max(0, Number(max) || 0);
+    return entries.length <= limit ? entries.slice() : entries.slice(entries.length - limit);
+  }
+
+  function normalizeSiteHost(value) {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return '';
+    const withoutWildcard = raw.replace(/^\*\./, '');
+    const cleanHost = (host) => String(host || '').replace(/^\*\./, '').replace(/^\.+|\.+$/g, '');
+    try {
+      return cleanHost(new URL(withoutWildcard.includes('://') ? withoutWildcard : `https://${withoutWildcard}`).hostname);
+    } catch {
+      return cleanHost(withoutWildcard.split('/')[0].split(':')[0]);
+    }
+  }
+
+  function hostMatchesSite(host, site) {
+    const normalizedHost = normalizeSiteHost(host);
+    const normalizedSite = normalizeSiteHost(site);
+    if (!normalizedHost || !normalizedSite) return false;
+    return normalizedHost === normalizedSite || normalizedHost.endsWith(`.${normalizedSite}`);
+  }
+
+  // ── Local privacy stats (U7) ──
+  // ISO-8601 week key "YYYY-Www" (weeks start Monday; week 1 contains the first
+  // Thursday of the year). Used to bucket durable redaction counts by week.
+  function isoWeekKey(date = new Date()) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    // Thursday in the current week decides the year.
+    const day = d.getUTCDay() || 7; // Sunday → 7
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+  }
+
+  // Fold a redaction event into a stats object, returning a NEW object (pure).
+  // Counts only — never values or sites.
+  function mergeRedactionStats(stats, label, weekKey, n = 1) {
+    const inc = Number(n) || 0;
+    const base = (stats && typeof stats === 'object') ? stats : {};
+    const byLabel = { ...(base.byLabel || {}) };
+    const byWeek = { ...(base.byWeek || {}) };
+    const labelKey = String(label || 'unknown');
+    byLabel[labelKey] = (Number(byLabel[labelKey]) || 0) + inc;
+    if (weekKey) byWeek[weekKey] = (Number(byWeek[weekKey]) || 0) + inc;
+    return {
+      totalProtected: (Number(base.totalProtected) || 0) + inc,
+      byLabel,
+      byWeek
+    };
+  }
+
+  // ── Settings sync (P2) ──
+  // Non-sensitive preference keys that may be mirrored to chrome.storage.sync.
+  // Secrets, ledgers, caches, stats, per-site snoozes, model/server overrides, and
+  // onboarding flags are deliberately excluded and stay local-only.
+  const SYNCED_SETTING_KEYS = Object.freeze([
+    'enabled',
+    'sensitivity',
+    'redactionMode',
+    'autoRedact',
+    'includeRegexWhenModelOnline',
+    'enabledTypes',
+    'customPatterns',
+    'customEntityTypes',
+    'monitorAllSites',
+    'monitoredSites',
+    'monitoredSelectors',
+    'excludedSites'
+  ]);
+
+  // Split a value (JSON-serialised) into ≤maxBytes string chunks so each sync item
+  // stays under chrome.storage.sync's ~8 KB QUOTA_BYTES_PER_ITEM. Pure.
+  function chunkForSync(value, maxBytes = 7000) {
+    const json = JSON.stringify(value ?? null);
+    const size = Math.max(1, Number(maxBytes) || 7000);
+    const chunks = [];
+    for (let i = 0; i < json.length; i += size) {
+      chunks.push(json.slice(i, i + size));
+    }
+    if (chunks.length === 0) chunks.push('');
+    return { chunks, count: chunks.length };
+  }
+
+  // Reassemble chunks produced by chunkForSync back into the original value. Pure.
+  // Returns undefined when parts are missing/invalid.
+  function reassembleChunks(parts) {
+    if (!Array.isArray(parts) || parts.length === 0) return undefined;
+    try {
+      return JSON.parse(parts.join(''));
+    } catch {
+      return undefined;
+    }
+  }
+
   const api = {
     DEFAULT_CUSTOM_PATTERNS,
     LEGACY_OPENAI_KEY_PATTERN,
     PATTERN_NAMES,
+    HIGH_RISK_LABELS,
+    SYNCED_SETTING_KEYS,
     cloneDefaultCustomPatterns,
-    normalizeCustomPatterns
+    normalizeCustomPatterns,
+    pruneIgnoredByTtl,
+    capFifo,
+    normalizeSiteHost,
+    hostMatchesSite,
+    isoWeekKey,
+    mergeRedactionStats,
+    chunkForSync,
+    reassembleChunks
   };
 
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   }
-  root.VEIL_PATTERN_CATALOG = api;
+  root.AI_SAFE_PLUGIN_PATTERN_CATALOG = api;
 }(typeof globalThis !== 'undefined' ? globalThis : this));

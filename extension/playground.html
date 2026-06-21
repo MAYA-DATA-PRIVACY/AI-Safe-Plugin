@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-Safe Plugin — Playground</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="options.css">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--md-bg, #f4efe6);
+      font-family: var(--md-font, "Avenir Next", "Manrope", "Segoe UI", sans-serif);
+      color: var(--md-on-surface, #2f281f);
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px;
+      box-sizing: border-box;
+    }
+    .pg-card {
+      width: 100%;
+      max-width: 720px;
+      background: var(--md-surface, #fffdf8);
+      border: 1px solid var(--md-outline-variant, #e7dece);
+      border-radius: 18px;
+      padding: 28px 30px 32px;
+      box-shadow: 0 18px 40px rgba(45, 37, 28, 0.08);
+    }
+    .pg-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .pg-head img { border-radius: 7px; }
+    .pg-title { font-size: 20px; font-weight: 700; }
+    .pg-sub { color: var(--md-on-surface-variant, #6f6659); margin: 0 0 20px; font-size: 14px; }
+    .pg-field {
+      min-height: 150px;
+      border: 1px solid var(--md-outline-variant, #e7dece);
+      border-radius: 12px;
+      background: #fff;
+      padding: 14px 16px;
+      font-size: 15px;
+      line-height: 1.6;
+      outline: none;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .pg-field:empty::before {
+      content: attr(data-placeholder);
+      color: #a89e8e;
+    }
+    .pg-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .pg-legend {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--md-outline-variant, #e7dece);
+      font-size: 13px;
+      color: var(--md-on-surface-variant, #6f6659);
+    }
+    .pg-legend ul { margin: 8px 0 0; padding-left: 18px; }
+    .pg-legend li { margin: 3px 0; }
+  </style>
+</head>
+<body>
+  <div class="pg-card">
+    <div class="pg-head">
+      <img src="assets/icons/ai-safe-plugin-icon.svg" alt="AI-Safe Plugin" width="26" height="26">
+      <span class="pg-title">Try AI-Safe Plugin</span>
+    </div>
+    <p class="pg-sub">Type or paste text below — or insert a sample — to see how AI-Safe Plugin detects and redacts sensitive data before it leaves your browser. Nothing here is sent anywhere.</p>
+
+    <div id="playgroundInput" class="pg-field" contenteditable="true" role="textbox" aria-label="Playground input" spellcheck="false" data-placeholder="Type something with a name, email, or phone number…"></div>
+
+    <div class="pg-actions">
+      <button id="insertSampleBtn" type="button">Insert sample text</button>
+      <button id="clearBtn" type="button" class="secondary">Clear</button>
+    </div>
+
+    <div class="pg-legend">
+      <strong>What you'll see</strong>
+      <ul>
+        <li><strong>Colored underlines</strong> mark detected items — hover one for details and quick actions.</li>
+        <li>The <strong>corner badge</strong> shows how many items need attention; click it to redact, restore, or dismiss each one.</li>
+        <li>Redacted values appear as <strong>tokens</strong> you can click to reveal or restore.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Boot the real detection engine on this extension page (same files the
+       content_scripts entry loads), then wire the playground controls. -->
+  <script src="pattern_catalog.js"></script>
+  <script src="content.js"></script>
+  <script src="playground.js"></script>
+</body>
+</html>
