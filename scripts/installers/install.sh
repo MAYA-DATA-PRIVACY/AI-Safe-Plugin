@@ -170,31 +170,41 @@ model_cache_present() {
   return 1
 }
 
+read_pyproject_version() {
+  # Derive the project version from the install's pyproject.toml (target is
+  # <install>/.runtime/bundle_release.json, so pyproject is two levels up).
+  local target_path="$1"
+  local pyproject
+  pyproject="$(dirname "$(dirname "${target_path}")")/pyproject.toml"
+  [[ -f "${pyproject}" ]] || return 0
+  sed -n 's/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "${pyproject}" | head -n1
+}
+
 stamp_release_metadata() {
   local release_info_path="$1"
   local target_path="$2"
-  local installed_at tag published html_url payload
+  local installed_at tag published html_url payload version
   installed_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  if [[ ! -f "${release_info_path}" ]]; then
-    cat > "${target_path}" <<EOF
-{
-  "tag": "",
-  "published_at": "",
-  "html_url": "",
-  "repository": "${REPO_SLUG}",
-  "installed_at": "${installed_at}"
-}
-EOF
-    return 0
+
+  if [[ -f "${release_info_path}" ]]; then
+    payload="$(tr -d '\n' < "${release_info_path}")"
+    tag="$(extract_release_field "${payload}" "tag")"
+    if [[ -z "${tag}" ]]; then
+      tag="$(extract_release_field "${payload}" "tag_name")"
+    fi
+    published="$(extract_release_field "${payload}" "published_at")"
+    html_url="$(extract_release_field "${payload}" "html_url")"
   fi
 
-  payload="$(tr -d '\n' < "${release_info_path}")"
-  tag="$(extract_release_field "${payload}" "tag")"
+  # Self-heal: if no tag was found, derive it from the bundled version so the
+  # extension can verify the install instead of nagging to re-run the installer.
   if [[ -z "${tag}" ]]; then
-    tag="$(extract_release_field "${payload}" "tag_name")"
+    version="$(read_pyproject_version "${target_path}")"
+    [[ -n "${version}" ]] && tag="v${version}"
   fi
-  published="$(extract_release_field "${payload}" "published_at")"
-  html_url="$(extract_release_field "${payload}" "html_url")"
+  if [[ -n "${tag}" && -z "${html_url}" ]]; then
+    html_url="https://github.com/${REPO_SLUG}/releases/tag/${tag}"
+  fi
 
   cat > "${target_path}" <<EOF
 {

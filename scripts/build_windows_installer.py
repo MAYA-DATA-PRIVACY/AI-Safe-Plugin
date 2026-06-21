@@ -18,6 +18,8 @@ STAGING_ROOT = DIST / "windows-installer"
 STAGE_DIR = STAGING_ROOT / "stage"
 METADATA_ISS = STAGING_ROOT / "metadata.iss"
 INSTALLER_ICON = STAGING_ROOT / "ai-safe-plugin.ico"
+WIZARD_IMAGE = STAGING_ROOT / "ai-safe-plugin-wizard.bmp"
+WIZARD_SMALL_IMAGE = STAGING_ROOT / "ai-safe-plugin-wizard-small.bmp"
 MAYA_MARK = ROOT / "extension" / "assets" / "maya" / "maya-mark.png"
 MODEL_ASSET_NAME = "ai-safe-plugin-model-fp16.tar.gz"
 DEFAULT_EXTENSION_ID = "aggkonihfabdcbgomkfecjhdolddfabe"
@@ -267,6 +269,83 @@ def generate_installer_icon() -> None:
 
     STAGING_ROOT.mkdir(parents=True, exist_ok=True)
     INSTALLER_ICON.write_bytes(header + bytes(directory) + bytes(payload))
+
+
+def _build_wizard_image(
+    mark_width: int,
+    mark_height: int,
+    mark_rgba: bytes,
+    width: int,
+    height: int,
+    mark_scale: float,
+    center_x: float,
+    center_y: float,
+) -> bytes:
+    """Opaque purple gradient panel with the white Maya atom composited on top."""
+    top_left = (0x7B, 0x61, 0xC4)
+    bottom_right = (0x67, 0x50, 0xA4)
+    canvas = bytearray(width * height * 4)
+    width_denom = max(1, width - 1)
+    height_denom = max(1, height - 1)
+    for y in range(height):
+        for x in range(width):
+            t = (x / width_denom + y / height_denom) / 2
+            dst = (y * width + x) * 4
+            canvas[dst] = round(top_left[0] * (1 - t) + bottom_right[0] * t)
+            canvas[dst + 1] = round(top_left[1] * (1 - t) + bottom_right[1] * t)
+            canvas[dst + 2] = round(top_left[2] * (1 - t) + bottom_right[2] * t)
+            canvas[dst + 3] = 255
+
+    mark_size = max(1, round(min(width, height) * mark_scale))
+    resized = _resize_rgba(mark_width, mark_height, mark_rgba, mark_size)
+    offset_x = round(width * center_x) - mark_size // 2
+    offset_y = round(height * center_y) - mark_size // 2
+    for y in range(mark_size):
+        for x in range(mark_size):
+            src = (y * mark_size + x) * 4
+            src_alpha = resized[src + 3]
+            if src_alpha == 0:
+                continue
+            dst_x = offset_x + x
+            dst_y = offset_y + y
+            if not (0 <= dst_x < width and 0 <= dst_y < height):
+                continue
+            dst = (dst_y * width + dst_x) * 4
+            # Force the Maya atom white, alpha-blended over the opaque gradient.
+            for channel in range(3):
+                canvas[dst + channel] = (255 * src_alpha + canvas[dst + channel] * (255 - src_alpha)) // 255
+    return bytes(canvas)
+
+
+def _write_bmp24(path: Path, width: int, height: int, rgba: bytes) -> None:
+    """Write an opaque 24-bit BGR bottom-up BMP (the format Inno Setup wizards expect)."""
+    row_stride = width * 3
+    padding = (4 - (row_stride % 4)) % 4
+    pixel_bytes = (row_stride + padding) * height
+    file_size = 14 + 40 + pixel_bytes
+    out = bytearray()
+    out += b"BM"
+    out += struct.pack("<IHHI", file_size, 0, 0, 14 + 40)
+    out += struct.pack("<IiiHHIIiiII", 40, width, height, 1, 24, 0, pixel_bytes, 2835, 2835, 0, 0)
+    pad = b"\x00" * padding
+    for y in range(height - 1, -1, -1):
+        base = y * width * 4
+        row = bytearray()
+        for x in range(width):
+            p = base + x * 4
+            row += bytes((rgba[p + 2], rgba[p + 1], rgba[p]))
+        out += row + pad
+    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(out))
+
+
+def generate_wizard_images() -> None:
+    mark_width, mark_height, mark_rgba = _read_png_rgba(MAYA_MARK)
+    # Large left banner (164x314) and small header (55x58) per Inno's modern style.
+    big = _build_wizard_image(mark_width, mark_height, mark_rgba, 164, 314, 0.62, 0.5, 0.30)
+    _write_bmp24(WIZARD_IMAGE, 164, 314, big)
+    small = _build_wizard_image(mark_width, mark_height, mark_rgba, 55, 58, 0.74, 0.5, 0.5)
+    _write_bmp24(WIZARD_SMALL_IMAGE, 55, 58, small)
 
 
 def copy_path(path: Path, destination_root: Path) -> None:

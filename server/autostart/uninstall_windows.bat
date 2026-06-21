@@ -4,6 +4,7 @@ set "REMOVED_ANY=0"
 
 call :remove_task "AISafePluginGLiNER2"
 call :remove_task "AI-Safe Plugin GLiNER Server"
+call :remove_task "Veil GLiNER Server"
 call :remove_task "PrivacyShieldGLiNER2"
 
 if "%REMOVED_ANY%"=="0" (

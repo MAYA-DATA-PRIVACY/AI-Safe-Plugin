@@ -140,6 +140,7 @@ class SettingsManager {
       versionEl.textContent = `v${manifest.version}`;
     }
     this.initBetaBanner();
+    await this.hydrateCachedServerState();
     this.render();
     await this.loadPageStats();
     await this.refreshServerStatus();
@@ -1609,6 +1610,24 @@ class SettingsManager {
     }
   }
 
+  async hydrateCachedServerState() {
+    // Optimistically restore the last-known server state so reopening the popup
+    // shows "Active (Local)" immediately. refreshServerStatus() runs right after
+    // and corrects this within a moment if anything actually changed.
+    try {
+      const stored = await chrome.storage.session?.get('aiSafePluginCachedServerState');
+      const cached = stored?.aiSafePluginCachedServerState;
+      if (cached && typeof cached === 'object') {
+        this.serverState = { ...this.serverState, ...cached, known: true };
+        if (cached.installed && cached.running && cached.healthy) {
+          this.serverPhase = 'active';
+        }
+      }
+    } catch {
+      // session storage unavailable — fall back to the live check only.
+    }
+  }
+
   updateServerState(payload = {}) {
     this.serverState = {
       known: true,
@@ -1619,6 +1638,14 @@ class SettingsManager {
       portConflict: Boolean(payload.portConflict),
       processPhase: String(payload.processPhase || '')
     };
+    // Cache the last-known state so the next popup open can render it instantly
+    // instead of flashing "Checking local model status..." while the (slower on
+    // Windows) native-host status call runs. Fire-and-forget; session-scoped.
+    try {
+      chrome.storage.session?.set({ aiSafePluginCachedServerState: this.serverState });
+    } catch {
+      // session storage unavailable — the live refresh still drives the UI.
+    }
     if (!this.serverState.installed) {
       this.setServerPhase('disconnected');
     } else if (this.serverState.running && this.serverState.healthy) {

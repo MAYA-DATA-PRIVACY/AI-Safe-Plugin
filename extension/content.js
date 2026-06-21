@@ -179,6 +179,12 @@ class AiSafePluginContentController {
     // True while the local model is unreachable and regex-only protection is
     // active — drives the field badge's fallback indicator dot.
     this.modelOffline = false;
+    // Offline-toast control: the server can be cold-starting (slow on Windows),
+    // so don't fire a scary "offline" toast during a startup grace window, and
+    // show it at most once per offline episode (reset when the model is back).
+    this._startedAt = Date.now();
+    this._offlineToastShown = false;
+    this._offlineGraceMs = 12000;
 
     // Per-site alias ledger — ensures PERSON_1 stays PERSON_1 across sessions
     // on the same site. Loaded from chrome.storage on init, 30-day TTL.
@@ -1211,11 +1217,11 @@ class AiSafePluginContentController {
       const ellipse = document.createElementNS(ns, 'ellipse');
       ellipse.setAttribute('cx', '12');
       ellipse.setAttribute('cy', '12');
-      ellipse.setAttribute('rx', '9.5');
-      ellipse.setAttribute('ry', '3.6');
+      ellipse.setAttribute('rx', '11');
+      ellipse.setAttribute('ry', '4.2');
       ellipse.setAttribute('fill', 'none');
       ellipse.setAttribute('stroke', 'currentColor');
-      ellipse.setAttribute('stroke-width', '2.2');
+      ellipse.setAttribute('stroke-width', '1.9');
       ellipse.setAttribute('transform', `rotate(${deg} 12 12)`);
       svg.appendChild(ellipse);
     });
@@ -1223,7 +1229,7 @@ class AiSafePluginContentController {
     const nucleus = document.createElementNS(ns, 'circle');
     nucleus.setAttribute('cx', '12');
     nucleus.setAttribute('cy', '12');
-    nucleus.setAttribute('r', '2.6');
+    nucleus.setAttribute('r', '3');
     nucleus.setAttribute('fill', 'currentColor');
     svg.appendChild(nucleus);
 
@@ -2152,8 +2158,7 @@ class AiSafePluginContentController {
       // Surface model-offline state as a non-blocking notification so users know
       // regex fallback is active rather than silently getting degraded detection.
       if (/failed to fetch|networkerror|connection refused|econnrefused/i.test(String(error?.message || ''))) {
-        this.modelOffline = true;
-        this.showNotification('Model offline — regex fallback active', 'warning');
+        this.notifyModelOffline('Model offline — regex fallback active');
       }
     } finally {
       this.setAnalyzingState(element, false);
@@ -4305,9 +4310,8 @@ class AiSafePluginContentController {
 
   handleRuntimeMessage(request, _sender, sendResponse) {
     if (request?.action === 'serverCrashed') {
-      this.modelOffline = true;
       this.fieldBadges.forEach((_, el) => this.updateFieldBadge(el, this.redactions.get(el)));
-      this.showNotification('GLiNER2 server offline — using regex fallback.', 'warning');
+      this.notifyModelOffline('GLiNER2 server offline — using regex fallback.');
       // Reset detector mode so next detection triggers a re-check
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
       return false;
@@ -4315,6 +4319,7 @@ class AiSafePluginContentController {
 
     if (request?.action === 'serverRestored') {
       this.modelOffline = false;
+      this._offlineToastShown = false;
       this.fieldBadges.forEach((_, el) => this.updateFieldBadge(el, this.redactions.get(el)));
       this.showNotification('Local model back online — full AI detection active.', 'info');
       try { chrome.runtime.sendMessage({ action: 'initialize' }).catch(() => { }); } catch { }
@@ -4390,6 +4395,18 @@ class AiSafePluginContentController {
     region.textContent = '';
     // Re-set on the next frame so repeated identical messages still announce.
     requestAnimationFrame(() => { region.textContent = String(message || ''); });
+  }
+
+  // Show the "model offline" toast only when it's genuinely useful: not during
+  // the post-load grace window (the server may still be cold-starting, common on
+  // Windows), and at most once per offline episode. modelOffline still flips so
+  // the badge fallback dot reflects reality immediately.
+  notifyModelOffline(message) {
+    this.modelOffline = true;
+    if (this._offlineToastShown) return;
+    if (Date.now() - this._startedAt < this._offlineGraceMs) return;
+    this._offlineToastShown = true;
+    this.showNotification(message, 'warning');
   }
 
   showNotification(message, type = 'info', durationMs = 1900) {
