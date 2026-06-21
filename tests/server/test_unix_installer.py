@@ -34,6 +34,15 @@ def test_unix_installer_reuses_existing_model_cache_before_downloading_again():
     assert 'echo "Existing GLiNER2 model cache found; skipping download."' in script
 
 
+def test_unix_installer_hardens_macos_runtime_against_sigkill():
+    # Regression: Apple Silicon SIGKILLs the downloaded CPython unless quarantine is
+    # stripped and the Mach-O files are (ad-hoc) re-signed before `uv sync` runs.
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+    assert "harden_macos_runtime" in script
+    assert "xattr -dr com.apple.quarantine" in script
+    assert "codesign --force --sign -" in script
+
+
 def test_uninstaller_waits_for_process_shutdown_and_retries_directory_removal():
     script = UNINSTALLER_PATH.read_text(encoding="utf-8")
 
@@ -54,6 +63,14 @@ def test_unix_installer_verifies_asset_checksums():
     # Model is verified (soft) and only extracted when verification passes.
     assert 'verify_asset_checksum "${MODEL_ARCHIVE}" soft' in script
 
+
+def test_unix_installer_defaults_to_pinned_extension_id():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert 'DEFAULT_EXTENSION_ID="aggkonihfabdcbgomkfecjhdolddfabe"' in script
+    assert 'EXTENSION_IDS=("${DEFAULT_EXTENSION_ID}")' in script
+    assert 'No extension id supplied; using the pinned AI-Safe Plugin id ${DEFAULT_EXTENSION_ID}.' in script
+    assert 'fail "Usage: curl .../install.sh | bash -s -- --extension-id <EXTENSION_ID>' not in script
 
 def test_unix_installer_warns_and_continues_when_sha256sums_missing():
     script = INSTALLER_PATH.read_text(encoding="utf-8")

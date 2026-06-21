@@ -119,6 +119,36 @@ def is_windows_platform() -> bool:
     return os.name == "nt"
 
 
+def is_macos_platform() -> bool:
+    return sys.platform == "darwin"
+
+
+def harden_macos_runtime(target: Path) -> None:
+    """Strip the Gatekeeper quarantine attribute and ad-hoc-sign Mach-O files under
+    ``target`` so macOS (esp. Apple Silicon) executes the downloaded CPython instead
+    of killing it with SIGKILL ("Killed: 9"). Best-effort: any failure is ignored."""
+    if not is_macos_platform() or not target.exists():
+        return
+    try:
+        subprocess.run(
+            ["xattr", "-dr", "com.apple.quarantine", str(target)],
+            check=False, capture_output=True,
+        )
+    except Exception:
+        pass
+    for pattern in ("python3*", "*.dylib", "*.so"):
+        for macho in target.rglob(pattern):
+            if not macho.is_file():
+                continue
+            try:
+                subprocess.run(
+                    ["codesign", "--force", "--sign", "-", str(macho)],
+                    check=False, capture_output=True,
+                )
+            except Exception:
+                pass
+
+
 def run_cmd(
     cmd: list[str],
     cwd: Path | None = None,
@@ -534,6 +564,10 @@ def sync_managed_runtime() -> None:
         details = trim_output(python_install.stderr or python_install.stdout)
         raise RuntimeError(f"Managed Python install failed:\n{details}")
 
+    # De-quarantine/ad-hoc-sign the freshly downloaded interpreter before `uv sync`
+    # queries it, or macOS will SIGKILL it ("Killed: 9").
+    harden_macos_runtime(UV_PYTHON_INSTALL_DIR)
+
     sync = run_cmd(
         [
             str(uv_binary),
@@ -553,6 +587,8 @@ def sync_managed_runtime() -> None:
     if sync.returncode != 0:
         details = trim_output(sync.stderr or sync.stdout)
         raise RuntimeError(f"Runtime sync failed:\n{details}")
+
+    harden_macos_runtime(VENV_DIR)
 
     read_runtime_python_version.cache_clear()
 

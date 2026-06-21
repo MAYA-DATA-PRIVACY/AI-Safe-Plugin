@@ -9,16 +9,16 @@ popd
 
 set "VENV_PYTHON=%REPO_DIR%\.venv\Scripts\python.exe"
 set "SERVER_SCRIPT=%REPO_DIR%\server\gliner2_server.py"
-set "TASK_NAME=AI-Safe Plugin GLiNER Server"
-set "LEGACY_TASK_NAME=PrivacyShieldGLiNER2"
+set "TASK_NAME=AISafePluginGLiNER2"
 
 if not exist "%VENV_PYTHON%" (
     echo ERROR: .venv not found. Run install_native_host_windows.bat first.
     exit /b 1
 )
 
-schtasks /delete /tn "%LEGACY_TASK_NAME%" /f >nul 2>&1
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
+schtasks /delete /tn "AI-Safe Plugin GLiNER Server" /f >nul 2>&1
+schtasks /delete /tn "PrivacyShieldGLiNER2" /f >nul 2>&1
 
 :: Create a wrapper script that sets cache env vars before starting the server.
 :: This ensures the model cache lives inside the AI-Safe Plugin install directory, matching

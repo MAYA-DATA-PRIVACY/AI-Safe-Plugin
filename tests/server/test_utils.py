@@ -205,6 +205,34 @@ class TestLoadOrCreateToken:
 
         assert gliner2_server.load_or_create_token() == "existing-token-value"
 
+    def test_empty_token_file_is_replaced(self, monkeypatch, tmp_path):
+        token_file = tmp_path / "server_token"
+        token_file.write_text("", encoding="utf-8")
+        monkeypatch.setattr(gliner2_server, "SERVER_TOKEN_FILE", token_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        token = gliner2_server.load_or_create_token()
+
+        assert len(token) == 64
+        assert token_file.read_text(encoding="utf-8").strip() == token
+
+
+class TestLoadProcessState:
+    def test_corrupt_process_state_is_treated_as_missing(self, monkeypatch, tmp_path):
+        state_file = tmp_path / "server_process.json"
+        state_file.write_text("{invalid", encoding="utf-8")
+        monkeypatch.setattr(gliner2_server, "PROCESS_STATE_FILE", state_file)
+        monkeypatch.setattr(gliner2_server, "RUNTIME_DIR", tmp_path)
+
+        assert gliner2_server.load_process_state() == {}
+
+
+def test_windows_connection_aborted_error_is_treated_as_disconnect():
+    source = Path(gliner2_server.__file__).read_text(encoding="utf-8")
+
+    assert "ConnectionAbortedError" in source
+    assert "WinError 10053" in source
+
 
 class TestScrubUpstreamDetail:
     def test_empty_body(self):

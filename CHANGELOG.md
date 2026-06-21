@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Fixed Windows native-messaging setup by pinning AI-Safe Plugin's extension ID (`aggkonihfabdcbgomkfecjhdolddfabe`) and defaulting installers/native-host registration to that ID when no explicit custom ID is supplied. Existing unpacked installs must reload the extension once and rerun setup once so Chrome and the native-host manifest agree.
+- Rebranded the Windows local-server install path and scheduled task to `AI-Safe-Plugin` / `AISafePluginGLiNER2`, while keeping legacy cleanup for older Veil/PrivacyShield task names.
+- Hardened the local server against Windows client disconnects (`WinError 10053`) and corrupt runtime state files so aborted browser requests and partial writes no longer produce noisy startup or handler failures.
+- Fixed the macOS install on Apple Silicon where the downloaded managed Python was killed with `SIGKILL` ("Killed: 9"): the installer and native host now strip the Gatekeeper quarantine attribute and ad-hoc-sign the interpreter before it runs, so `uv sync` and the local server can start.
+- The native-host registration now accepts multiple browser extension IDs (and always includes the pinned ID), so one local server can be shared across Chrome, Brave, Edge, and other Chromium browsers on the same machine.
+
 - Refreshed the popup and settings UI: the toolbar/settings pages now use the high-resolution Maya mark (crisp white on the purple header, on a purple brand chip on light backgrounds) instead of the old low-contrast icon, and ship the Inter font for a consistent, professional look across devices. The browser toolbar action icons were regenerated to the white Maya atom on a purple rounded tile.
 - Tidied the popup header layout: the brand name now stays on a single line, the live "Active (Local)" status moved into the stats/hero area, and the Beta badge and version moved down into the footer.
 - Surfaced the beta product stage as a slim, dismissible banner at the top of the popup and settings pages (replacing the inline "Beta" chip in the settings sidebar), so the early-access status reads clearly and can be retired in one place later.

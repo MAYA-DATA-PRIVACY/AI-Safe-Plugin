@@ -84,9 +84,47 @@ function Get-AiSafePluginPythonVersion {
 
 function Get-AiSafePluginScheduledTaskNames {
     return @(
+        "AISafePluginGLiNER2",
         "AI-Safe Plugin GLiNER Server",
+        "Veil GLiNER Server",
         "PrivacyShieldGLiNER2"
     )
+}
+
+function Resolve-AiSafePluginExtensionIds {
+    param(
+        [string]$ExtensionId,
+        [string[]]$ExtensionIds = @(),
+        [Parameter(Mandatory = $true)]
+        [string]$DefaultExtensionId
+    )
+
+    $resolved = New-Object System.Collections.Generic.List[string]
+    $rawValues = @()
+    if (-not [string]::IsNullOrWhiteSpace($ExtensionId)) {
+        $rawValues += $ExtensionId
+    }
+    foreach ($value in $ExtensionIds) {
+        if (-not [string]::IsNullOrWhiteSpace($value)) {
+            $rawValues += $value
+        }
+    }
+    $rawValues += $DefaultExtensionId
+
+    foreach ($raw in $rawValues) {
+        foreach ($part in ([string]$raw -split '[,;\s]+')) {
+            $id = $part.Trim().ToLowerInvariant()
+            if ([string]::IsNullOrWhiteSpace($id)) { continue }
+            if ($id -notmatch '^[a-p]{32}$') {
+                throw "Invalid Chrome extension ID: $part"
+            }
+            if (-not $resolved.Contains($id)) {
+                [void]$resolved.Add($id)
+            }
+        }
+    }
+
+    return [string[]]$resolved.ToArray()
 }
 
 function Stop-AiSafePluginScheduledTask {
@@ -552,8 +590,8 @@ function Assert-AiSafePluginBundledPayload {
 function global:Install-AiSafePlugin {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]
         [string]$ExtensionId,
+        [string[]]$ExtensionIds = @(),
         [string]$InstallDir = $env:AI_SAFE_PLUGIN_INSTALL_DIR,
         [switch]$RecreateVenv,
         [switch]$UseExistingBundle,
@@ -565,15 +603,22 @@ function global:Install-AiSafePlugin {
     $releaseBase = "https://github.com/$repoSlug/releases/latest/download"
     $assetName = "ai-safe-plugin-backend-windows.zip"
     $defaultAnonEndpoint = "https://app.mayadataprivacy.in/mdp/engine/anonymization"
+    $defaultExtensionId = "aggkonihfabdcbgomkfecjhdolddfabe"
     $pinnedUvVersion = "0.10.7"
     $pinnedPythonVersion = "3.11.11"
+
+    $resolvedExtensionIds = Resolve-AiSafePluginExtensionIds -ExtensionId $ExtensionId -ExtensionIds $ExtensionIds -DefaultExtensionId $defaultExtensionId
+    if ([string]::IsNullOrWhiteSpace($ExtensionId) -and $ExtensionIds.Count -eq 0) {
+        Write-Host "No extension id supplied; using the pinned AI-Safe Plugin id $defaultExtensionId."
+    }
 
     if ([string]::IsNullOrWhiteSpace($UvVersion)) {
         $UvVersion = $pinnedUvVersion
     }
 
     if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe Plugin"
+        # Hyphenated, space-free folder keeps .bat/registry paths quote-safe.
+        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe-Plugin"
     }
 
     $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-safe-plugin-install-" + [guid]::NewGuid().ToString("N"))
@@ -672,7 +717,11 @@ function global:Install-AiSafePlugin {
             }
         }
 
-        Invoke-AiSafePluginCommand -Command @((Join-Path $InstallDir "server\native-host\install_windows.bat"), $ExtensionId) -FailureMessage "Failed to register the AI-Safe Plugin native host"
+        # Build the command as a FLAT array [batPath, id1, id2, ...]. Wrapping the
+        # path in @() first makes `+` array concatenation; `(string) + (array)` would
+        # instead string-concat into a single bogus token and break the call.
+        $nativeHostCommand = @(Join-Path $InstallDir "server\native-host\install_windows.bat") + $resolvedExtensionIds
+        Invoke-AiSafePluginCommand -Command $nativeHostCommand -FailureMessage "Failed to register the AI-Safe Plugin native host"
 
         $autostartRegistered = $false
         try {
@@ -692,7 +741,7 @@ function global:Install-AiSafePlugin {
         Write-Host ""
         Write-Host "AI-Safe Plugin install complete."
         Write-Host "Install directory: $InstallDir"
-        Write-Host "Extension ID: $ExtensionId"
+        Write-Host "Extension IDs: $($resolvedExtensionIds -join ', ')"
     }
     finally {
         if (Test-Path $tempRoot) {
@@ -704,12 +753,13 @@ function global:Install-AiSafePlugin {
 # ── Auto-execute when run directly (not dot-sourced) ──
 # Usage:
 #   One-command install (PowerShell):
-#     powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id YOUR_EXTENSION_ID
+#     powershell -ExecutionPolicy Bypass -File install.ps1
 #   Or via irm:
-#     $env:AI_SAFE_PLUGIN_EXTENSION_ID='YOUR_EXTENSION_ID'; irm https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.ps1 | iex
+#     irm https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.ps1 | iex
 if ($MyInvocation.InvocationName -ne '.') {
     $extId = $null
     $installDir = $null
+    $extIds = @()
     $recreate = $false
     $useExistingBundle = $false
 
@@ -717,6 +767,8 @@ if ($MyInvocation.InvocationName -ne '.') {
         switch ($args[$i]) {
             '--extension-id' { $extId = $args[++$i] }
             '-ExtensionId'   { $extId = $args[++$i] }
+            '--extension-ids' { $extIds += $args[++$i] }
+            '-ExtensionIds'   { $extIds += $args[++$i] }
             '--install-dir'  { $installDir = $args[++$i] }
             '-InstallDir'    { $installDir = $args[++$i] }
             '--recreate-venv' { $recreate = $true }
@@ -729,19 +781,7 @@ if ($MyInvocation.InvocationName -ne '.') {
         $extId = $env:AI_SAFE_PLUGIN_EXTENSION_ID
     }
 
-    if ([string]::IsNullOrWhiteSpace($extId)) {
-        # No extension ID — show usage and make the function available for manual call
-        Write-Host "Usage:" -ForegroundColor Yellow
-        Write-Host "  powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id <EXTENSION_ID>" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "Or via irm (two ways):" -ForegroundColor Yellow
-        Write-Host '  $env:AI_SAFE_PLUGIN_EXTENSION_ID="YOUR_ID"; irm .../install.ps1 | iex' -ForegroundColor Cyan
-        Write-Host '  irm .../install.ps1 | iex; Install-AiSafePlugin -ExtensionId "YOUR_ID"' -ForegroundColor Cyan
-        # Don't exit — let the function remain available for the user to call next
-        return
-    }
-
-    $params = @{ ExtensionId = $extId }
+    $params = @{ ExtensionId = $extId; ExtensionIds = $extIds }
     if (-not [string]::IsNullOrWhiteSpace($installDir)) { $params.InstallDir = $installDir }
     if ($recreate) { $params.RecreateVenv = $true }
     if ($useExistingBundle) { $params.UseExistingBundle = $true }

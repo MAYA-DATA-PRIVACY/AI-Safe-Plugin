@@ -9,7 +9,7 @@ AppPublisherURL={#MyAppUrl}
 AppSupportURL={#MyAppUrl}
 AppUpdatesURL={#MyAppUrl}
 AppCopyright={#MyAppCopyright}
-DefaultDirName={localappdata}\AI-Safe Plugin
+DefaultDirName={localappdata}\AI-Safe-Plugin
 DefaultGroupName=AI-Safe Plugin
 DisableProgramGroupPage=yes
 DisableDirPage=no
@@ -25,7 +25,7 @@ SolidCompression=yes
 WizardStyle=modern
 MinVersion=10.0
 LicenseFile=..\..\LICENSE
-SetupIconFile=assets\ai-safe-plugin-installer.ico
+SetupIconFile=..\..\dist\windows-installer\ai-safe-plugin.ico
 WizardImageFile=assets\ai-safe-plugin-wizard.bmp
 WizardSmallImageFile=assets\ai-safe-plugin-wizard-small.bmp
 OutputDir=..\..\dist
@@ -37,6 +37,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "{#MyStageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\dist\windows-installer\ai-safe-plugin.ico"; DestDir: "{app}\.runtime"; DestName: "ai-safe-plugin.ico"; Flags: ignoreversion
 
 [Dirs]
 Name: "{app}\.runtime"
@@ -48,7 +49,7 @@ Name: "{app}\.runtime\cache\hf\transformers"
 Name: "{app}\.runtime\cache\xdg"
 
 [Icons]
-Name: "{autoprograms}\AI-Safe Plugin"; Filename: "{uninstallexe}"
+Name: "{autoprograms}\AI-Safe Plugin"; Filename: "{uninstallexe}"; IconFilename: "{app}\.runtime\ai-safe-plugin.ico"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.runtime"
@@ -56,46 +57,40 @@ Type: files; Name: "{app}\.env"
 
 [Code]
 var
-  ExtensionIdPage: TInputQueryWizardPage;
   DownloadPage: TDownloadWizardPage;
   ExtractionPage: TExtractionWizardPage;
-  ExtensionId: String;
+  ExtensionIds: String;
 
-function GetCliExtensionId(): String;
-begin
-  Result := Trim(ExpandConstant('{param:EXTENSION_ID|}'));
-  if Result = '' then
-    Result := Trim(ExpandConstant('{param:ExtensionId|}'));
-end;
-
-function NormalizeExtensionId(const Value: String): String;
+function GetCliExtensionIds(): String;
 var
-  I: Integer;
+  MultiIds: String;
+  SingleId: String;
 begin
-  Result := Lowercase(Trim(Value));
-  if Length(Result) <> 32 then
-  begin
-    Result := '';
-    exit;
-  end;
+  MultiIds := Trim(ExpandConstant('{param:EXTENSION_IDS|}'));
+  if MultiIds = '' then
+    MultiIds := Trim(ExpandConstant('{param:ExtensionIds|}'));
 
-  for I := 1 to Length(Result) do
-  begin
-    if (Result[I] < 'a') or (Result[I] > 'p') then
-    begin
-      Result := '';
-      exit;
-    end;
-  end;
+  SingleId := Trim(ExpandConstant('{param:EXTENSION_ID|}'));
+  if SingleId = '' then
+    SingleId := Trim(ExpandConstant('{param:ExtensionId|}'));
+
+  if (MultiIds <> '') and (SingleId <> '') then
+    Result := MultiIds + ',' + SingleId
+  else if MultiIds <> '' then
+    Result := MultiIds
+  else
+    Result := SingleId;
 end;
 
-function ResolveExtensionId(): String;
+function ResolveExtensionIds(): String;
+var
+  CliExtensionIds: String;
 begin
-  Result := NormalizeExtensionId(GetCliExtensionId());
-  if Result <> '' then
-    exit;
-  if Assigned(ExtensionIdPage) then
-    Result := NormalizeExtensionId(ExtensionIdPage.Values[0]);
+  CliExtensionIds := GetCliExtensionIds();
+  if CliExtensionIds <> '' then
+    Result := CliExtensionIds + ',{#MyDefaultExtensionId}'
+  else
+    Result := '{#MyDefaultExtensionId}';
 end;
 
 function ModelFilesPresentInDir(const Value: String): Boolean;
@@ -253,37 +248,6 @@ begin
     nil
   );
 
-  if GetCliExtensionId() <> '' then
-    exit;
-
-  ExtensionIdPage := CreateInputQueryPage(
-    wpSelectDir,
-    'Connect AI-Safe Plugin To Your Browser Extension',
-    'Paste the AI-Safe Plugin extension ID',
-    'AI-Safe Plugin must know the browser extension ID so it can register the native messaging host on Windows. ' +
-    'For unpacked installs, open chrome://extensions, find AI-Safe Plugin, and copy the 32-character ID. ' +
-    'Silent installs can pass /EXTENSION_ID=<id>.'
-  );
-  ExtensionIdPage.Add('Extension ID:', False);
-  ExtensionIdPage.Values[0] := GetCliExtensionId();
-end;
-
-function NextButtonClick(CurPageID: Integer): Boolean;
-begin
-  Result := True;
-  if Assigned(ExtensionIdPage) and (CurPageID = ExtensionIdPage.ID) then
-  begin
-    ExtensionId := ResolveExtensionId();
-    if ExtensionId = '' then
-    begin
-      MsgBox(
-        'Enter a valid 32-character Chrome/Edge extension ID using letters a through p.',
-        mbError,
-        MB_OK
-      );
-      Result := False;
-    end;
-  end;
 end;
 
 procedure FinalizeLocalRuntime();
@@ -292,9 +256,9 @@ var
   InstallerScript: String;
   Params: String;
 begin
-  ExtensionId := ResolveExtensionId();
-  if ExtensionId = '' then
-    RaiseException('A valid AI-Safe Plugin extension ID is required to finish Windows setup.');
+  ExtensionIds := ResolveExtensionIds();
+  if ExtensionIds = '' then
+    RaiseException('A valid AI-Safe Plugin extension ID is required to finish Windows setup. Pass /EXTENSION_ID=<id>, /EXTENSION_IDS=<ids>, or rebuild with a valid pinned key.');
 
   InstallerScript := ExpandConstant('{app}\scripts\installers\install.ps1');
   if not FileExists(InstallerScript) then
@@ -302,7 +266,7 @@ begin
 
   Params :=
     '-NoProfile -ExecutionPolicy Bypass -File "' + InstallerScript + '"' +
-    ' -ExtensionId "' + ExtensionId + '"' +
+    ' -ExtensionIds "' + ExtensionIds + '"' +
     ' -InstallDir "' + ExpandConstant('{app}') + '"' +
     ' -UseExistingBundle';
 

@@ -1023,8 +1023,11 @@ def make_handler(
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                # Browser disconnected while we were sending response.
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # Browser disconnected while we were sending the response. On Windows
+                # this surfaces as ConnectionAbortedError (WinError 10053); POSIX raises
+                # BrokenPipeError/ConnectionResetError. Treat all three the same so a
+                # mid-response disconnect never crashes the handler thread.
                 pass
 
         def _read_json(self) -> Any:
@@ -1168,8 +1171,9 @@ def make_handler(
                     return
 
                 self._write_json({"ok": False, "error": "Not found"}, status_code=404)
-            except (BrokenPipeError, ConnectionResetError):
-                # Client disconnected before receiving server output.
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+                # Client disconnected before receiving server output. ConnectionAbortedError
+                # is the Windows (WinError 10053) variant of the POSIX broken-pipe/reset.
                 return
             except json.JSONDecodeError:
                 self._write_json({"ok": False, "error": "Invalid JSON body."}, status_code=400)

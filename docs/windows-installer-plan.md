@@ -14,8 +14,8 @@ user's AI-Safe Plugin extension.
 - The current PowerShell installer assembles too much at user install time:
   runtime bootstrap, dependency sync, model download, native-host setup, and
   autostart registration.
-- The browser native host still needs an extension ID in order to write the
-  allowed origin manifest on Windows.
+- The browser native host uses AI-Safe Plugin's pinned extension ID by default,
+  while still accepting an explicit ID for custom unpacked builds.
 
 ## Production Shape
 
@@ -27,7 +27,7 @@ Phase 1 focuses on the shippable path we can build from this repository now:
    user's machine during setup instead of shipping a CI-built virtualenv.
 3. Compile a branded Inno Setup bootstrap installer from that stage.
 4. Accept `/EXTENSION_ID=<id>` from the extension-generated install command,
-   and only prompt during install if that argument is missing.
+   and otherwise use the pinned ID `aggkonihfabdcbgomkfecjhdolddfabe`.
 5. During setup, reuse an existing valid model cache if present; otherwise
    download the model asset with progress and extract it into the local cache.
 6. Publish `AISafePluginSetup-<version>.exe` as a GitHub Release asset beside the raw
@@ -37,13 +37,15 @@ Phase 1 focuses on the shippable path we can build from this repository now:
 ## Installer UX
 
 - AI-Safe Plugin branding on setup binary and wizard surfaces.
-- Per-user install into `%LOCALAPPDATA%\AI-Safe Plugin`.
+- Per-user install into `%LOCALAPPDATA%\AI-Safe-Plugin`.
 - Backend payload copied first, then local runtime provisioning via `uv sync`
   during setup so Windows gets a machine-local `.venv`.
 - Model download step with native installer progress on first install only.
 - Update-safe cache reuse so repeat installs do not redownload the model.
 - Extension-generated Windows command downloads `AISafePluginSetup.exe` and passes
-  `/EXTENSION_ID=...`, with prompt fallback only when needed.
+  `/EXTENSION_ID=...`; direct installs default to the pinned ID. Reloading an older
+  unpacked extension once changes it to the fixed ID, then rerunning setup refreshes
+  native-messaging `allowed_origins`.
 - Deterministic uninstall that removes the native host and autostart entries
   before deleting files, including the runtime-downloaded model cache.
 
@@ -52,7 +54,7 @@ Phase 1 focuses on the shippable path we can build from this repository now:
 Phase 2:
 - Sign the installer and installed executables/scripts.
 - Publish checksums for release assets.
-- Add a stable extension ID path once AI-Safe Plugin's distribution channel is fixed.
+- Keep the pinned extension key documented when publishing through a browser store.
 
 Phase 3:
 - Graduate to MSI/WiX only if enterprise deployment requirements justify the

@@ -7,8 +7,9 @@ ASSET_NAME="ai-safe-plugin-backend-unix.tar.gz"
 DEFAULT_ANON_ENDPOINT="https://app.mayadataprivacy.in/mdp/engine/anonymization"
 PINNED_UV_VERSION="0.10.7"
 PINNED_PYTHON_VERSION="3.11.11"
+DEFAULT_EXTENSION_ID="aggkonihfabdcbgomkfecjhdolddfabe"
 
-EXTENSION_ID=""
+EXTENSION_IDS=()
 INSTALL_DIR="${AI_SAFE_PLUGIN_INSTALL_DIR:-}"
 RECREATE_VENV=0
 UV_VERSION="${AI_SAFE_PLUGIN_UV_VERSION:-${PINNED_UV_VERSION}}"
@@ -255,18 +256,48 @@ sync_runtime() {
     UV_LINK_MODE=copy \
     "${UV_BIN}" python install "${PINNED_PYTHON_VERSION}" --install-dir "${runtime_dir}/python"
 
+  # macOS (esp. Apple Silicon) kills freshly-downloaded interpreters with SIGKILL
+  # ("Killed: 9") when they still carry the com.apple.quarantine xattr or lack a
+  # valid signature. Strip quarantine and best-effort ad-hoc re-sign so `uv sync`
+  # (which queries the interpreter) and the server can actually execute it.
+  if [[ "${PLATFORM}" == "mac" ]]; then
+    harden_macos_runtime "${runtime_dir}/python"
+  fi
+
   env \
     UV_CACHE_DIR="${runtime_dir}/cache/uv" \
     UV_PYTHON_INSTALL_DIR="${runtime_dir}/python" \
     UV_PROJECT_ENVIRONMENT="${INSTALL_DIR}/.venv" \
     UV_LINK_MODE=copy \
     "${UV_BIN}" sync --frozen --no-dev --no-install-project --directory "${INSTALL_DIR}" --python "${PINNED_PYTHON_VERSION}" --managed-python
+
+  if [[ "${PLATFORM}" == "mac" ]]; then
+    harden_macos_runtime "${INSTALL_DIR}/.venv"
+  fi
+}
+
+# Remove the Gatekeeper quarantine attribute and ad-hoc-sign any Mach-O files under
+# a runtime directory so macOS will execute the downloaded CPython instead of
+# SIGKILL-ing it. All steps are best-effort (no-ops on non-mac / missing tools).
+harden_macos_runtime() {
+  local target="$1"
+  [[ -d "${target}" ]] || return 0
+  xattr -dr com.apple.quarantine "${target}" >/dev/null 2>&1 || true
+  if command -v codesign >/dev/null 2>&1; then
+    while IFS= read -r macho; do
+      codesign --force --sign - "${macho}" >/dev/null 2>&1 || true
+    done < <(find "${target}" -type f \( -name 'python3*' -o -name '*.dylib' -o -name '*.so' \) 2>/dev/null)
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --extension-id)
-      EXTENSION_ID="${2:-}"
+      EXTENSION_IDS+=("${2:-}")
+      shift 2
+      ;;
+    --extension-ids)
+      EXTENSION_IDS+=("${2:-}")
       shift 2
       ;;
     --install-dir)
@@ -291,8 +322,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${EXTENSION_ID}" ]]; then
-  fail "Usage: curl .../install.sh | bash -s -- --extension-id <EXTENSION_ID> [--install-dir <dir>] [--recreate-venv]"
+if [[ "${#EXTENSION_IDS[@]}" -eq 0 ]]; then
+  EXTENSION_IDS=("${DEFAULT_EXTENSION_ID}")
+  echo "No extension id supplied; using the pinned AI-Safe Plugin id ${DEFAULT_EXTENSION_ID}."
 fi
 
 OS_NAME="$(uname -s)"
@@ -379,14 +411,14 @@ else
 fi
 
 if [[ "${PLATFORM}" == "linux" ]]; then
-  bash server/native-host/install_linux.sh "${EXTENSION_ID}"
+  bash server/native-host/install_linux.sh "${EXTENSION_IDS[@]}"
   bash server/autostart/install_linux.sh
 else
-  bash server/native-host/install_mac.sh "${EXTENSION_ID}"
+  bash server/native-host/install_mac.sh "${EXTENSION_IDS[@]}"
   bash server/autostart/install_mac.sh
 fi
 
 echo
 echo "AI-Safe Plugin install complete."
 echo "Install directory: ${INSTALL_DIR}"
-echo "Extension ID: ${EXTENSION_ID}"
+echo "Extension IDs: ${EXTENSION_IDS[*]}"

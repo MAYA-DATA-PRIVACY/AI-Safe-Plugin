@@ -4,7 +4,7 @@ function Stop-AiSafePluginWindowsProcesses {
         [string]$InstallDir
     )
 
-    foreach ($taskName in @("AI-Safe Plugin GLiNER Server", "PrivacyShieldGLiNER2")) {
+    foreach ($taskName in @("AISafePluginGLiNER2", "AI-Safe Plugin GLiNER Server", "Veil GLiNER Server", "PrivacyShieldGLiNER2")) {
         $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
         if ($null -ne $task) {
             Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
@@ -61,7 +61,15 @@ function Uninstall-AiSafePlugin {
     )
 
     if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe Plugin"
+        $InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe-Plugin"
+        foreach ($legacyDir in @(
+            (Join-Path $env:LOCALAPPDATA "AI-Safe Plugin"),
+            (Join-Path $env:LOCALAPPDATA "Veil")
+        )) {
+            if (-not (Test-Path -LiteralPath $InstallDir) -and (Test-Path -LiteralPath $legacyDir)) {
+                $InstallDir = $legacyDir
+            }
+        }
     }
 
     if (-not (Test-Path -LiteralPath $InstallDir)) {

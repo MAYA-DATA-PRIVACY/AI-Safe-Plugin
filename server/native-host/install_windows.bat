@@ -1,13 +1,24 @@
 @echo off
 setlocal enabledelayedexpansion
 
-if "%~1"=="" (
-    echo Usage: install_native_host_windows.bat ^<extension_id^>
-    echo Example: install_native_host_windows.bat abcdefghijklmnopqrstuvwxyz123456
+:: Stable extension ID derived from the pinned "key" in extension/manifest.json.
+:: Used as the default so a fresh install works without passing an ID; an explicit
+:: argument still overrides it (e.g. for a custom unpacked build).
+set "DEFAULT_EXTENSION_ID=aggkonihfabdcbgomkfecjhdolddfabe"
+
+set "EXTENSION_IDS_RAW=%*"
+if "%EXTENSION_IDS_RAW%"=="" (
+    set "EXTENSION_IDS_RAW=%DEFAULT_EXTENSION_ID%"
+    echo No extension id supplied; using the pinned AI-Safe Plugin id %DEFAULT_EXTENSION_ID%.
+)
+set "EXTENSION_IDS_RAW=%EXTENSION_IDS_RAW:,= %"
+set "EXTENSION_IDS_RAW=%EXTENSION_IDS_RAW:;= %"
+set "EXTENSION_IDS="
+for %%I in (%EXTENSION_IDS_RAW% %DEFAULT_EXTENSION_ID%) do call :add_extension_id "%%~I" || exit /b 1
+if "%EXTENSION_IDS%"=="" (
+    echo ERROR: No valid extension ids supplied.
     exit /b 1
 )
-
-set "EXTENSION_ID=%~1"
 set "SCRIPT_DIR=%~dp0"
 set "REPO_DIR=%SCRIPT_DIR%..\.."
 
@@ -55,10 +66,24 @@ echo   "description": "AI-Safe Plugin GLiNER Server Native Host",
 echo   "path": "%LAUNCHER_JSON%",
 echo   "type": "stdio",
 echo   "allowed_origins": [
-echo     "chrome-extension://%EXTENSION_ID%/"
+) > "%MANIFEST%"
+
+set /a ORIGIN_TOTAL=0
+for %%I in (%EXTENSION_IDS%) do set /a ORIGIN_TOTAL+=1
+set /a ORIGIN_INDEX=0
+for %%I in (%EXTENSION_IDS%) do (
+    set /a ORIGIN_INDEX+=1
+    if !ORIGIN_INDEX! lss !ORIGIN_TOTAL! (
+        >> "%MANIFEST%" echo     "chrome-extension://%%I/",
+    ) else (
+        >> "%MANIFEST%" echo     "chrome-extension://%%I/"
+    )
+)
+
+(
 echo   ]
 echo }
-) > "%MANIFEST%"
+) >> "%MANIFEST%"
 
 reg delete "HKCU\Software\Google\Chrome\NativeMessagingHosts\%LEGACY_HOST_NAME%" /f >nul 2>&1
 reg delete "HKCU\Software\Chromium\NativeMessagingHosts\%LEGACY_HOST_NAME%" /f >nul 2>&1
@@ -77,7 +102,7 @@ reg add "HKCU\Software\Microsoft\Edge\NativeMessagingHosts\%HOST_NAME%" /ve /t R
 echo Registered for Microsoft Edge.
 
 echo.
-echo Native host installed for extension: %EXTENSION_ID%
+echo Native host installed for extension ids: %EXTENSION_IDS%
 echo Manifest:  %MANIFEST%
 echo Launcher:  %LAUNCHER%
 
@@ -100,3 +125,29 @@ if exist "%AUTOSTART_SCRIPT%" (
 echo.
 echo AI-Safe Plugin setup complete.
 endlocal
+exit /b 0
+
+:add_extension_id
+set "CANDIDATE_ID=%~1"
+if "%CANDIDATE_ID%"=="" exit /b 0
+if not "%CANDIDATE_ID:~32,1%"=="" (
+    echo ERROR: Invalid extension id: %CANDIDATE_ID%
+    exit /b 1
+)
+if "%CANDIDATE_ID:~31,1%"=="" (
+    echo ERROR: Invalid extension id: %CANDIDATE_ID%
+    exit /b 1
+)
+echo(%CANDIDATE_ID%| findstr /r "^[a-p][a-p]*$" >nul
+if errorlevel 1 (
+    echo ERROR: Invalid extension id: %CANDIDATE_ID%
+    exit /b 1
+)
+echo ;%EXTENSION_IDS%;| findstr /c:";%CANDIDATE_ID%;" >nul
+if not errorlevel 1 exit /b 0
+if "%EXTENSION_IDS%"=="" (
+    set "EXTENSION_IDS=%CANDIDATE_ID%"
+) else (
+    set "EXTENSION_IDS=%EXTENSION_IDS% %CANDIDATE_ID%"
+)
+exit /b 0

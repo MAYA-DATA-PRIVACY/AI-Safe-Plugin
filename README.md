@@ -90,7 +90,7 @@ Download the latest `ai-safe-plugin-extension-*.zip` from [Releases](https://git
 1. Open Chrome and go to `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked** and select the extracted folder
-4. Note the **Extension ID** shown on the card - you'll need it next
+4. If you previously loaded an older unpacked build, reload the extension once so Chrome uses AI-Safe Plugin's fixed extension ID.
 
 ### 2. Install the Local Server
 
@@ -98,17 +98,15 @@ The server handles PII detection using the GLiNER2 model. One command does every
 
 **Linux / macOS:**
 ```bash
-curl -fsSL https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.sh \
-  | bash -s -- --extension-id YOUR_EXTENSION_ID
+curl -fsSL https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.sh | bash
 ```
 
 **Windows** (PowerShell as Administrator):
 ```powershell
-$env:AI_SAFE_PLUGIN_EXTENSION_ID='YOUR_EXTENSION_ID'
 irm https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.ps1 | iex
 ```
 
-That's it. The server starts immediately and will auto-launch on every login. Open any AI chatbot and start typing - AI-Safe Plugin is watching.
+That's it. The server starts immediately and will auto-launch on every login. Advanced/custom builds can still pass an explicit extension ID with `--extension-id` or `-ExtensionId`; ordinary releases use the pinned ID `aggkonihfabdcbgomkfecjhdolddfabe`. Open any AI chatbot and start typing - AI-Safe Plugin is watching.
 
 ### 3. Verify It Works
 

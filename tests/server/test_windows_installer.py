@@ -7,6 +7,9 @@ import re
 
 INSTALLER_PATH = Path(__file__).resolve().parents[2] / "scripts" / "installers" / "install.ps1"
 AUTOSTART_INSTALLER_PATH = Path(__file__).resolve().parents[2] / "server" / "autostart" / "install_windows.bat"
+AUTOSTART_UNINSTALLER_PATH = Path(__file__).resolve().parents[2] / "server" / "autostart" / "uninstall_windows.bat"
+NATIVE_HOST_INSTALLER_PATH = Path(__file__).resolve().parents[2] / "server" / "native-host" / "install_windows.bat"
+PINNED_EXTENSION_ID = "aggkonihfabdcbgomkfecjhdolddfabe"
 
 
 def test_uv_bootstrap_output_is_not_returned_from_ensure_ai_safe_plugin_uv():
@@ -72,6 +75,27 @@ def test_windows_autostart_script_prints_powershell_safe_manual_start_guidance()
     assert 'Start-Process "%VENV_PYTHON%" -ArgumentList' in script
 
 
+def test_windows_autostart_uses_compact_task_name_and_cleans_legacy_names():
+    install_script = AUTOSTART_INSTALLER_PATH.read_text(encoding="utf-8")
+    uninstall_script = AUTOSTART_UNINSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert 'set "TASK_NAME=AISafePluginGLiNER2"' in install_script
+    assert 'schtasks /delete /tn "AI-Safe Plugin GLiNER Server" /f' in install_script
+    assert 'schtasks /delete /tn "PrivacyShieldGLiNER2" /f' in install_script
+    assert 'call :remove_task "AISafePluginGLiNER2"' in uninstall_script
+    assert 'call :remove_task "AI-Safe Plugin GLiNER Server"' in uninstall_script
+    assert 'call :remove_task "PrivacyShieldGLiNER2"' in uninstall_script
+
+
+def test_windows_native_host_installer_defaults_to_pinned_extension_id():
+    script = NATIVE_HOST_INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert f'set "DEFAULT_EXTENSION_ID={PINNED_EXTENSION_ID}"' in script
+    assert 'set "EXTENSION_IDS_RAW=%DEFAULT_EXTENSION_ID%"' in script
+    # Multi-ID: allowed_origins are written per id in a loop.
+    assert 'chrome-extension://%%I/' in script
+
+
 def test_install_ai_safe_plugin_verifies_asset_checksums():
     script = INSTALLER_PATH.read_text(encoding="utf-8")
 
@@ -85,6 +109,23 @@ def test_install_ai_safe_plugin_verifies_asset_checksums():
     # Model verified before extraction (failure throws → HF fallback in catch).
     assert "Test-AiSafePluginAssetChecksum -AssetPath $modelArchive -ReleaseBase $releaseBase -TempRoot $tempRoot" in script
 
+
+def test_install_ai_safe_plugin_defaults_extension_id_and_install_dir():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    assert f'$defaultExtensionId = "{PINNED_EXTENSION_ID}"' in script
+    assert "[Parameter(Mandatory = $true)]\n        [string]$ExtensionId" not in script
+    assert '$InstallDir = Join-Path $env:LOCALAPPDATA "AI-Safe-Plugin"' in script
+    assert 'No extension id supplied; using the pinned AI-Safe Plugin id $defaultExtensionId.' in script
+    assert 'powershell -ExecutionPolicy Bypass -File install.ps1 --extension-id <EXTENSION_ID>' not in script
+
+
+def test_install_ai_safe_plugin_builds_native_host_command_as_flat_array():
+    # Regression: `@((path) + $ids)` string-concats into one bogus token. The command
+    # must be built as array concatenation so Invoke-AiSafePluginCommand gets [path, id...].
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+    assert '$nativeHostCommand = @(Join-Path $InstallDir "server\\native-host\\install_windows.bat") + $resolvedExtensionIds' in script
+    assert 'Invoke-AiSafePluginCommand -Command $nativeHostCommand' in script
 
 def test_install_ai_safe_plugin_warns_and_continues_when_sha256sums_missing():
     script = INSTALLER_PATH.read_text(encoding="utf-8")

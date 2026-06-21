@@ -186,20 +186,20 @@ def test_is_pid_running_uses_windows_process_query(monkeypatch):
 
 
 def test_owned_server_command_matches_windows_autostart_wrapper(monkeypatch):
-    repo_dir = Path("C:/Users/example/AppData/Local/AI-Safe Plugin")
+    repo_dir = Path("C:/Users/example/AppData/Local/AI-Safe-Plugin")
     monkeypatch.setattr(native_host, "is_windows_platform", lambda: True)
     monkeypatch.setattr(native_host, "REPO_DIR", repo_dir)
     monkeypatch.setattr(native_host, "SCRIPT_PATH", repo_dir / "server" / "gliner2_server.py")
     monkeypatch.setattr(native_host, "AUTOSTART_WRAPPER_PATH", repo_dir / "server" / "autostart" / "start_server.cmd")
 
     assert native_host.is_owned_server_command(
-        r'cmd.exe /d /c "C:\Users\example\AppData\Local\AI-Safe Plugin\server\autostart\start_server.cmd"'
+        r'cmd.exe /d /c "C:\Users\example\AppData\Local\AI-Safe-Plugin\server\autostart\start_server.cmd"'
     )
     assert native_host.is_owned_server_command(
-        r'"C:\Users\example\AppData\Local\AI-Safe Plugin\.venv\Scripts\python.exe" "C:\Users\example\AppData\Local\AI-Safe Plugin\server\gliner2_server.py" --host 127.0.0.1 --port 8765'
+        r'"C:\Users\example\AppData\Local\AI-Safe-Plugin\.venv\Scripts\python.exe" "C:\Users\example\AppData\Local\AI-Safe-Plugin\server\gliner2_server.py" --host 127.0.0.1 --port 8765'
     )
     assert not native_host.is_owned_server_command(
-        r'"C:\other\AI-Safe Plugin\.venv\Scripts\python.exe" "C:\other\AI-Safe Plugin\server\gliner2_server.py"'
+        r'"C:\other\AI-Safe-Plugin\.venv\Scripts\python.exe" "C:\other\AI-Safe-Plugin\server\gliner2_server.py"'
     )
 
 
