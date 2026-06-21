@@ -14,6 +14,7 @@ DefaultGroupName=AI-Safe Plugin
 DisableProgramGroupPage=yes
 DisableDirPage=no
 DisableWelcomePage=no
+UsePreviousAppDir=no
 ChangesAssociations=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
