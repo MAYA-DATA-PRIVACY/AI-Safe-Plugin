@@ -117,7 +117,7 @@
 
 /* ─── Field status badge (replaces scanning pill) ─── */
 .ps-field-badge {
-  --badge-size: 26px;
+  --badge-size: 30px;
   --badge-amber: #B45309;
   --badge-green: #15803D;
   --badge-brand: linear-gradient(145deg, #7B61C4, #6750A4);
@@ -147,8 +147,8 @@
 
 /* Maya atom mark inside the badge — white on the purple disc via currentColor */
 .ps-badge-img {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   pointer-events: none;
   color: #FFFFFF;
@@ -191,7 +191,7 @@
 .ps-field-badge.ps-badge-pending .ps-badge-count {
   display: block;
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }
@@ -232,8 +232,8 @@
 
 /* SVG monogram inside badge */
 .ps-badge-svg {
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -519,6 +519,7 @@
 /* Base button — mirrors popup.css `button` */
 .ps-popover-btn {
   flex: 1;
+  min-height: 0;
   border: 1px solid #3a3024;
   border-radius: 8px;
   padding: 5px 10px;
@@ -696,6 +697,7 @@
 .ps-panel-row-btn {
   width: 20px;
   height: 20px;
+  min-height: 0;
   border-radius: 5px;
   border: 1px solid transparent;
   background: transparent;
@@ -729,6 +731,7 @@
 
 .ps-panel-btn {
   flex: 1;
+  min-height: 0;
   border-radius: 8px;
   padding: 5px 10px;
   font-size: 11px;

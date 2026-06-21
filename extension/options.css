@@ -955,7 +955,11 @@ body.opt-page {
 /* ── M3 Buttons ── */
 
 /* Base — Filled (primary) */
-button {
+/* Scoped to settings + playground so this aggressive M3 reset does NOT leak onto
+   the body-level injected redaction panel (.ps-panel-* buttons), which would
+   otherwise be forced into giant purple pills on pages that load options.css. */
+.opt-layout button,
+.pg-card button {
   font-family: var(--md-font) !important;
   font-size: 14px !important;     /* M3 Label Large */
   font-weight: 500 !important;
@@ -978,24 +982,28 @@ button {
   -webkit-tap-highlight-color: transparent !important;
 }
 
-button:hover:not(:disabled) {
+.opt-layout button:hover:not(:disabled),
+.pg-card button:hover:not(:disabled) {
   background: #7965AF !important;
   box-shadow: var(--md-elev-2) !important;
 }
 
-button:active:not(:disabled) {
+.opt-layout button:active:not(:disabled),
+.pg-card button:active:not(:disabled) {
   background: #5B4397 !important;
   box-shadow: var(--md-elev-1) !important;
 }
 
-button:disabled {
+.opt-layout button:disabled,
+.pg-card button:disabled {
   background: rgba(28,27,31,0.12) !important;
   color: rgba(28,27,31,0.38) !important;
   box-shadow: none !important;
   cursor: not-allowed !important;
 }
 
-button:focus-visible {
+.opt-layout button:focus-visible,
+.pg-card button:focus-visible {
   outline: 3px solid var(--md-primary) !important;
   outline-offset: 2px !important;
 }

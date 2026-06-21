@@ -1385,7 +1385,7 @@ class AiSafePluginContentController {
     }
     badge.style.display = '';
 
-    const badgeSize = 26;
+    const badgeSize = 30;
     const inset = 8;
 
     // Bottom-right of field, inset 8px
