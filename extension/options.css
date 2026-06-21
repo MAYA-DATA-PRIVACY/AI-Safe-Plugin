@@ -94,6 +94,12 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Stack the beta banner above the sidebar+main row without overflowing the viewport. */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Neutralise popup.css shell card */
 .shell { display: contents; }
 
@@ -106,7 +112,8 @@ html, body {
 .opt-layout {
   display: flex;
   width: 100vw;
-  height: 100vh;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
   font-family: var(--md-font);
   color: var(--md-on-surface);

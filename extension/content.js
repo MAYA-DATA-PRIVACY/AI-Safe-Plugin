@@ -1194,30 +1194,6 @@ class AiSafePluginContentController {
   // Field Status Badge
   // ═══════════════════════════════════════════════════════════
 
-  // Inline SVG monogram derived from ai-safe-plugin-icon.svg — single-color path
-  // representing the "stacked bars" visual mark at 14×14.
-  _buildBadgeSvg(extraClass) {
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', '0 0 14 14');
-    svg.setAttribute('width', '14');
-    svg.setAttribute('height', '14');
-    svg.setAttribute('fill', 'currentColor');
-    svg.setAttribute('aria-hidden', 'true');
-    if (extraClass) svg.setAttribute('class', extraClass);
-    // Three horizontal bars (simplified from ai-safe-plugin-icon rect elements)
-    [[1, 4, 12, 2], [1, 7, 12, 2], [1, 10, 8, 2]].forEach(([x, y, w, h]) => {
-      const rect = document.createElementNS(ns, 'rect');
-      rect.setAttribute('x', String(x));
-      rect.setAttribute('y', String(y));
-      rect.setAttribute('width', String(w));
-      rect.setAttribute('height', String(h));
-      rect.setAttribute('rx', '1');
-      svg.appendChild(rect);
-    });
-    return svg;
-  }
-
   _buildCheckSvg() {
     const ns = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(ns, 'svg');
@@ -1249,8 +1225,12 @@ class AiSafePluginContentController {
       badge.tabIndex = 0;
       badge.setAttribute('aria-label', 'AI-Safe Plugin');
 
-      const monoSvg = this._buildBadgeSvg('ps-badge-svg');
-      badge.appendChild(monoSvg);
+      const mark = document.createElement('img');
+      mark.className = 'ps-badge-svg ps-badge-img';
+      mark.setAttribute('alt', '');
+      mark.setAttribute('aria-hidden', 'true');
+      mark.src = chrome.runtime.getURL('assets/maya/maya-mark.png');
+      badge.appendChild(mark);
 
       const checkSvg = this._buildCheckSvg();
       badge.appendChild(checkSvg);

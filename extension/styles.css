@@ -120,14 +120,19 @@
   --badge-size: 26px;
   --badge-amber: #B45309;
   --badge-green: #15803D;
+  --badge-brand: linear-gradient(145deg, #7B61C4, #6750A4);
 
   position: fixed;
   z-index: 2147483250;
   width: var(--badge-size);
   height: var(--badge-size);
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  /* Brand-purple disc with a white halo + drop shadow so the white Maya mark
+     stays clearly legible on any host background (light or dark sites). */
+  background: var(--badge-brand);
+  box-shadow:
+    0 0 0 1.5px rgba(255, 255, 255, 0.85),
+    0 2px 6px rgba(0, 0, 0, 0.30);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -140,23 +145,31 @@
   user-select: none;
 }
 
+/* Maya atom mark inside the badge */
+.ps-badge-img {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
 .ps-field-badge.ps-badge-visible {
   opacity: 1;
   transform: scale(1);
 }
 
-/* Idle: muted monogram */
+/* Idle: brand mark, full strength on the purple disc */
 .ps-field-badge.ps-badge-idle .ps-badge-svg {
-  opacity: 0.45;
-  color: currentColor;
+  opacity: 1;
 }
 
-/* Scanning: monogram + spinning ring */
+/* Scanning: brand mark + spinning ring */
 .ps-field-badge.ps-badge-scanning {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--badge-brand);
 }
 .ps-field-badge.ps-badge-scanning .ps-badge-svg {
-  opacity: 0.7;
+  opacity: 0.85;
 }
 .ps-field-badge.ps-badge-scanning::after {
   content: '';
@@ -164,7 +177,7 @@
   inset: 2px;
   border-radius: 50%;
   border: 1.5px solid transparent;
-  border-top-color: var(--ai-safe-plugin-ink, #23201b);
+  border-top-color: rgba(255, 255, 255, 0.9);
   pointer-events: none;
 }
 
@@ -245,10 +258,29 @@
   .ps-field-badge.ps-badge-scanning::after {
     animation: ps-badge-spin 0.75s linear infinite;
   }
+  /* Gentle resting breathe — a soft brand halo pulse so the mark feels alive. */
+  .ps-field-badge.ps-badge-visible.ps-badge-idle {
+    animation: ps-badge-breathe 2.6s ease-in-out infinite;
+  }
 }
 
 @keyframes ps-badge-spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes ps-badge-breathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1.5px rgba(255, 255, 255, 0.85),
+      0 2px 6px rgba(0, 0, 0, 0.30),
+      0 0 0 0 rgba(103, 80, 164, 0);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1.5px rgba(255, 255, 255, 0.90),
+      0 2px 7px rgba(0, 0, 0, 0.32),
+      0 0 0 4px rgba(103, 80, 164, 0.18);
+  }
 }
 
 /* ─── PII underline (Grammarly-style — before redaction) ─── */

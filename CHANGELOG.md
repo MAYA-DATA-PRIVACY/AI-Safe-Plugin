@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refreshed the popup and settings UI: the toolbar/settings pages now use the high-resolution Maya mark (crisp white on the purple header, on a purple brand chip on light backgrounds) instead of the old low-contrast icon, and ship the Inter font for a consistent, professional look across devices. The browser toolbar action icons were regenerated to the white Maya atom on a purple rounded tile.
 - Tidied the popup header layout: the brand name now stays on a single line, the live "Active (Local)" status moved into the stats/hero area, and the Beta badge and version moved down into the footer.
+- Surfaced the beta product stage as a slim, dismissible banner at the top of the popup and settings pages (replacing the inline "Beta" chip in the settings sidebar), so the early-access status reads clearly and can be retired in one place later.
+- Refreshed the in-page field badge to the Maya atom mark on a brand-purple disc with a white halo so it stays clearly visible on any website background, plus a gentle resting animation; it still turns amber with a count when items need attention and green with a check when protected.
 
 ### Added
 

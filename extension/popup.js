@@ -139,6 +139,7 @@ class SettingsManager {
     if (versionEl && manifest?.version) {
       versionEl.textContent = `v${manifest.version}`;
     }
+    this.initBetaBanner();
     this.render();
     await this.loadPageStats();
     await this.refreshServerStatus();
@@ -147,6 +148,26 @@ class SettingsManager {
     this.startServerPolling();
     this.startStatsPolling();
     this.wizard = null; // set by OnboardingWizard after construction
+  }
+
+  // Product-stage beta banner: shown until the user dismisses it (remembered
+  // locally). When the product graduates out of beta, delete the banner markup
+  // and this method.
+  initBetaBanner() {
+    const banner = document.getElementById('betaBanner');
+    if (!banner) return;
+    const closeBtn = document.getElementById('betaBannerClose');
+    chrome.storage.local.get('betaBannerDismissed', (result) => {
+      if (result && result.betaBannerDismissed) {
+        banner.hidden = true;
+      }
+    });
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        banner.hidden = true;
+        chrome.storage.local.set({ betaBannerDismissed: true });
+      });
+    }
   }
 
   loadSettings() {
