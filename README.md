@@ -255,7 +255,7 @@ npm run build:backend-bundle   # server tarball for GitHub Release
 npm run build:model-bundle     # ONNX model tarball for GitHub Release
 ```
 
-Releases are triggered by pushing a `v*` tag. The CI pipeline verifies version consistency across all files, runs the full test suite, and uploads release assets automatically.
+Releases are triggered by pushing a `v*` tag. The pipeline verifies version consistency across all files, runs the full test suite, and uploads release assets automatically. The full procedure is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ---
 
@@ -305,7 +305,7 @@ Accidental disclosure of personal data to AI services. If you paste your SSN int
 
 ### What It Does Not Protect Against
 
-A compromised browser, a malicious extension with higher privileges, OS-level keyloggers, or network interception. AI-Safe Plugin is a privacy guardrail, not a security perimeter.
+A compromised browser, a malicious extension with higher privileges, OS-level keyloggers, or network interception. AI-Safe Plugin is a privacy safeguard, not a security perimeter.
 
 ### Extension Permissions
 

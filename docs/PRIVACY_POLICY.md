@@ -1,4 +1,4 @@
-# Privacy Policy - AI-Safe Plugin AI Privacy Guard
+# Privacy Policy - AI-Safe Plugin
 
 Effective Date: May 13, 2026  
 Company: Maya Data Privacy Limited  
@@ -95,7 +95,7 @@ AI-Safe Plugin requests these permissions to provide its core function:
 - `<all_urls>` host access and content scripts: monitor supported text fields on sites where AI-Safe Plugin is enabled.
 - `localhost` and `127.0.0.1`: communicate with the local server.
 
-AI-Safe Plugin uses these permissions only to provide and improve its privacy guard function.
+AI-Safe Plugin uses these permissions only to provide and improve its privacy protection features.
 
 ## 9. Security
 
