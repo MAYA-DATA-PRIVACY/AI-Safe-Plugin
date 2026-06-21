@@ -396,6 +396,7 @@ def build_stage() -> None:
         copy_path(path, STAGE_DIR)
     write_release_metadata(STAGE_DIR)
     generate_installer_icon()
+    generate_wizard_images()
     write_metadata_iss()
 
 
