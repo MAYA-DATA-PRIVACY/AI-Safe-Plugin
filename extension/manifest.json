@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AI-Safe Plugin",
   "short_name": "AI-Safe Plugin",
-  "version": "1.2.8",
+  "version": "1.3.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw9bQ7wpYjcHB5qaq79cXjKIRJfvlT//e1clbrA+pbEjEYX1snK6WHyGgJ+WpLQFA2huaWL9zFXW1TG7VFjChNaWHTxPlrdsoG+j9+jF2O0VoEQbD9Td4jy7Wo0GxVcB4IfnUvLxSBPf1cQKKTIafqUT0011GH2aKDTpm1dc7q7VkYbDAi1NXAftdevxArXOXGFWWqx2EftPGmJJFXb77eE9r/HpwaUz5Bq+h+U6okctLloE7H+anYFrM+5C7tq+0PE5Vxhzq5sk/X2o/MVQpYJoLT5D0zHckOSHPHZL8QCyD6+G5H5X4Vysu9k7C9PMtzUhjTi7ngpLfhgoTmP5DAQIDAQAB",
   "description": "Real-time PII detection and redaction for AI chat interfaces. Local GLiNER2 detection by default.",
   "permissions": [
@@ -56,11 +56,15 @@
   },
   "commands": {
     "ai-safe-plugin-redact-all": {
-      "suggested_key": { "default": "Alt+Shift+R" },
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
       "description": "Redact all detections in the focused field"
     },
     "ai-safe-plugin-toggle": {
-      "suggested_key": { "default": "Alt+Shift+V" },
+      "suggested_key": {
+        "default": "Alt+Shift+V"
+      },
       "description": "Pause/resume AI-Safe Plugin on this site"
     }
   },
