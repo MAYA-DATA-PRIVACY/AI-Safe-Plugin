@@ -2,15 +2,11 @@
 
 <br/>
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/icons/ai-safe-plugin-wordmark-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="assets/icons/ai-safe-plugin-wordmark-light.png">
-  <img src="assets/icons/ai-safe-plugin-wordmark-dark.png" alt="AI-Safe Plugin" height="96">
-</picture>
+<img src="assets/icons/ai-safe-plugin-wordmark-light.png" alt="MAYA AISafe Plugin" height="96">
 
 <br/><br/>
 
-**Real-time PII detection and redaction for AI chat interfaces.**<br/>
+**MAYA AISafe Plugin — real-time PII detection and redaction for AI chat interfaces.**<br/>
 Local detection by default, with optional Maya anonymisation when you enable it.
 
 <br/>
@@ -39,11 +35,11 @@ Every time you type a name, email, phone number, or credit card into ChatGPT, Cl
 
 Most people don't even think about it until it's too late.
 
-## What AI-Safe Plugin Does
+## What MAYA AISafe Plugin Does
 
-AI-Safe Plugin sits between you and the AI. It watches what you type, spots sensitive information in real time, and gives you a chance to mask it before it gets sent. Names become `[PERSON]`. Emails become `[EMAIL REDACTED]`. Credit card numbers can be replaced before they leave your browser.
+MAYA AISafe Plugin sits between you and the AI. It watches what you type, spots sensitive information in real time, and gives you a chance to mask it before it gets sent. Names become `[PERSON]`. Emails become `[EMAIL REDACTED]`. Credit card numbers can be replaced before they leave your browser.
 
-Detection runs on your own machine by default using a local NLP model called [GLiNER2](https://github.com/fastino-ai/GLiNER2), plus local regex rules. AI-Safe Plugin also has an optional Maya anonymisation mode for realistic replacements; when enabled, selected anonymisation payloads are sent to Maya through AI-Safe Plugin's local proxy.
+Detection runs on your own machine by default using a local NLP model called [GLiNER2](https://github.com/fastino-ai/GLiNER2), plus local regex rules. MAYA AISafe Plugin also has an optional Maya anonymisation mode for realistic replacements; when enabled, selected anonymisation payloads are sent to Maya through MAYA AISafe Plugin's local proxy.
 
 <br/>
 
@@ -52,7 +48,7 @@ Detection runs on your own machine by default using a local NLP model called [GL
 ```
 You type:    "Hey, my name is John Smith and my SSN is 123-45-6789"
                                     |
-                              AI-Safe Plugin intercepts
+                              MAYA AISafe Plugin intercepts
                                     |
 AI receives: "Hey, my name is [PERSON] and my SSN is [SSN REDACTED]"
 ```
@@ -64,11 +60,11 @@ AI receives: "Hey, my name is [PERSON] and my SSN is [SSN REDACTED]"
 ## Key Features
 
 - **Local detection by default** - GLiNER2 ONNX model runs on localhost. Detection does not require cloud calls and works offline after initial setup.
-- **Inline highlights** - Grammarly-style underlining shows exactly what AI-Safe Plugin found. One click to redact, one click to dismiss.
+- **Inline highlights** - Grammarly-style underlining shows exactly what MAYA AISafe Plugin found. One click to redact, one click to dismiss.
 - **Works everywhere** - ChatGPT, Claude, Gemini, Perplexity, Notion, and any other site with text inputs or contentEditable fields.
 - **Regex fallback** - Built-in patterns catch API keys, JWTs, AWS credentials, SSNs, and more. Works instantly even without the local model.
 - **Custom patterns** - Add your own regex rules for internal IDs, project codes, or anything specific to your workflow.
-- **Keyboard shortcuts** - Use `Alt+Shift+R` to redact all detections in the focused field and `Alt+Shift+V` to pause or resume AI-Safe Plugin on the current site.
+- **Keyboard shortcuts** - Use `Alt+Shift+R` to redact all detections in the focused field and `Alt+Shift+V` to pause or resume MAYA AISafe Plugin on the current site.
 - **Adjustable sensitivity** - Low, Medium, or High detection thresholds depending on how aggressive you want the scanning to be.
 - **One-command install** - Single curl/PowerShell command sets up the local server, downloads the model, registers autostart, and you're done.
 - **Cross-platform** - Linux (systemd), macOS (launchd), and Windows (Task Scheduler) autostart out of the box.
@@ -78,6 +74,8 @@ AI receives: "Hey, my name is [PERSON] and my SSN is [SSN REDACTED]"
 **Via the GLiNER2 model:** Person names, email addresses, phone numbers, physical addresses, social security numbers, credit card numbers, dates of birth, locations, and organizations.
 
 **Via regex patterns:** OpenAI/AWS/GitHub/Stripe/Twilio API keys, JWTs, IPv4/IPv6 addresses, MAC addresses, Indian PAN/Aadhaar/IFSC numbers, passport numbers, connection strings, private keys, and any custom pattern you define.
+
+For the full, categorized breakdown of everything the product does, see [docs/FEATURES.md](docs/FEATURES.md).
 
 ---
 
@@ -90,7 +88,7 @@ Download the latest `ai-safe-plugin-extension-*.zip` from [Releases](https://git
 1. Open Chrome and go to `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. Click **Load unpacked** and select the extracted folder
-4. If you previously loaded an older unpacked build, reload the extension once so Chrome uses AI-Safe Plugin's fixed extension ID.
+4. If you previously loaded an older unpacked build, reload the extension once so Chrome uses MAYA AISafe Plugin's fixed extension ID.
 
 ### 2. Install the Local Server
 
@@ -106,15 +104,15 @@ curl -fsSL https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/d
 irm https://github.com/Maya-Data-Privacy/AI-Safe-Plugin/releases/latest/download/install.ps1 | iex
 ```
 
-That's it. The server starts immediately and will auto-launch on every login. Advanced/custom builds can still pass an explicit extension ID with `--extension-id` or `-ExtensionId`; ordinary releases use the pinned ID `aggkonihfabdcbgomkfecjhdolddfabe`. Open any AI chatbot and start typing - AI-Safe Plugin is watching.
+That's it. The server starts immediately and will auto-launch on every login. Advanced/custom builds can still pass an explicit extension ID with `--extension-id` or `-ExtensionId`; ordinary releases use the pinned ID `aggkonihfabdcbgomkfecjhdolddfabe`. Open any AI chatbot and start typing - MAYA AISafe Plugin is watching.
 
 ### 3. Verify It Works
 
-Click the AI-Safe Plugin icon in your browser toolbar. You should see:
+Click the MAYA AISafe Plugin icon in your browser toolbar. You should see:
 - A green status dot indicating the local server is online
 - "Local GLiNER2 is online" in the status area
 
-Type something like "My name is John Smith and my email is john@example.com" into any AI chat. AI-Safe Plugin should highlight the name and email within a second or two.
+Type something like "My name is John Smith and my email is john@example.com" into any AI chat. MAYA AISafe Plugin should highlight the name and email within a second or two.
 
 ---
 
@@ -142,16 +140,16 @@ Local detection happens on your machine. The extension's manifest includes a str
 
 ### Data Flow and Retention
 
-- **Detection text**: sent from the active tab to the extension background worker, then to the local AI-Safe Plugin server on `127.0.0.1:8765` for GLiNER2 inference. This detection path is local by default.
+- **Detection text**: sent from the active tab to the extension background worker, then to the local MAYA AISafe Plugin server on `127.0.0.1:8765` for GLiNER2 inference. This detection path is local by default.
 - **Optional anonymisation**: when Anonymize mode is enabled and a Maya API key is configured, selected detected values are sent to Maya through the local `/anonymize` proxy so Maya can return realistic replacements. Maya company policy says Maya does not store PII that runs through its anonymisation engine.
 - **Browser-local storage**: settings, custom regex patterns, Maya API key, local server URL override, onboarding/preferences, site redaction counters, and cached redaction state are stored in `chrome.storage.local`, not Chrome sync.
-- **Cached redaction state**: AI-Safe Plugin stores recent redaction state locally so page interactions can remain consistent. The cache includes the source text and detected items, and entries older than 24 hours are removed by the extension cache cleanup logic.
+- **Cached redaction state**: MAYA AISafe Plugin stores recent redaction state locally so page interactions can remain consistent. The cache includes the source text and detected items, and entries older than 24 hours are removed by the extension cache cleanup logic.
 - **Uninstall**: removing the extension clears extension-owned browser storage according to browser behavior. The server uninstall scripts remove the local server runtime, model files, autostart entries, and native messaging host config.
 
 ### Security Boundaries
 
-- AI-Safe Plugin protects text before submission; it does not control how ChatGPT, Claude, Gemini, or any destination service handles text after you send it.
-- AI-Safe Plugin does not inspect provider-owned server logs, conversation databases, or model-training pipelines.
+- MAYA AISafe Plugin protects text before submission; it does not control how ChatGPT, Claude, Gemini, or any destination service handles text after you send it.
+- MAYA AISafe Plugin does not inspect provider-owned server logs, conversation databases, or model-training pipelines.
 - The local server binds to `127.0.0.1` by default. Treat other local processes and browser extensions on the same machine as part of your local trust boundary.
 - Custom regex patterns run locally but can still create performance problems if a pattern is pathological. Add only patterns you trust.
 
@@ -185,9 +183,9 @@ Head to the extension's Settings page, scroll to **Advanced**, and add patterns 
 
 ### Anonymisation Service (Optional)
 
-AI-Safe Plugin can optionally connect to the [Maya Data Privacy](https://mayadataprivacy.in) anonymisation API for smarter replacements - turning `John Smith` into a consistent synthetic alias like `Alex Johnson` instead of a generic `[PERSON]` tag.
+MAYA AISafe Plugin can optionally connect to the [Maya Data Privacy](https://mayadataprivacy.in) anonymisation API for smarter replacements - turning `John Smith` into a consistent synthetic alias like `Alex Johnson` instead of a generic `[PERSON]` tag.
 
-This is disabled by default and requires your own Maya API key. When Anonymize mode is enabled, AI-Safe Plugin sends the selected detected values and metadata needed for anonymisation to Maya through the local server's `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine. Unsupported detections remain local and are masked with local redaction tags.
+This is disabled by default and requires your own Maya API key. When Anonymize mode is enabled, MAYA AISafe Plugin sends the selected detected values and metadata needed for anonymisation to Maya through the local server's `/anonymize` proxy. Maya company policy says Maya does not store PII that runs through its anonymisation engine. Unsupported detections remain local and are masked with local redaction tags.
 
 ---
 
@@ -219,7 +217,7 @@ This removes the server, Python virtual environment, downloaded models, autostar
 
 ```bash
 git clone https://github.com/Maya-Data-Privacy/AI-Safe-Plugin.git
-cd AI-Safe Plugin
+cd AI-Safe-Plugin
 npm run setup                    # provisions Python 3.11 + dependencies via uv
 npm run download-gliner2         # downloads the ONNX model (~2 GB)
 npm run run-gliner2              # starts the local server on port 8765
@@ -262,7 +260,7 @@ Releases are triggered by pushing a `v*` tag. The pipeline verifies version cons
 ## Project Structure
 
 ```
-AI-Safe Plugin/
+AI-Safe-Plugin/
 ├── extension/                  # Chrome extension (load this folder directly)
 │   ├── manifest.json           # MV3 manifest with CSP
 │   ├── background.js           # Service worker: detection routing, server health
@@ -299,13 +297,13 @@ AI-Safe Plugin/
 
 ## Security
 
-### What AI-Safe Plugin Protects Against
+### What MAYA AISafe Plugin Protects Against
 
-Accidental disclosure of personal data to AI services. If you paste your SSN into ChatGPT without thinking, AI-Safe Plugin catches it and gives you a chance to redact it first.
+Accidental disclosure of personal data to AI services. If you paste your SSN into ChatGPT without thinking, MAYA AISafe Plugin catches it and gives you a chance to redact it first.
 
 ### What It Does Not Protect Against
 
-A compromised browser, a malicious extension with higher privileges, OS-level keyloggers, or network interception. AI-Safe Plugin is a privacy safeguard, not a security perimeter.
+A compromised browser, a malicious extension with higher privileges, OS-level keyloggers, or network interception. MAYA AISafe Plugin is a privacy safeguard, not a security perimeter.
 
 ### Extension Permissions
 
@@ -323,7 +321,7 @@ Please do not open public issues for security vulnerabilities. See [docs/SECURIT
 
 ### Privacy
 
-AI-Safe Plugin performs detection locally by default; optional Maya anonymisation runs only when you enable it. See the full [Privacy Policy](docs/PRIVACY_POLICY.md) for what AI-Safe Plugin processes, what leaves the device, and how local data is stored and deleted.
+MAYA AISafe Plugin performs detection locally by default; optional Maya anonymisation runs only when you enable it. See the full [Privacy Policy](docs/PRIVACY_POLICY.md) for what MAYA AISafe Plugin processes, what leaves the device, and how local data is stored and deleted.
 
 ---
 

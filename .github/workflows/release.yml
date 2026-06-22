@@ -238,6 +238,9 @@ jobs:
       - name: Rename extension ZIP with version
         run: mv dist/ai-safe-plugin-extension.zip "dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}.zip"
 
+      - name: Build Web Store ZIP (manifest key stripped)
+        run: bash scripts/build_crx.sh --store "dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}-webstore.zip"
+
       - name: Download Windows installer artifact
         uses: actions/download-artifact@v8
         with:
@@ -254,6 +257,7 @@ jobs:
         run: |
           sha256sum \
             "ai-safe-plugin-extension-${RELEASE_VERSION}.zip" \
+            "ai-safe-plugin-extension-${RELEASE_VERSION}-webstore.zip" \
             install.sh \
             install.ps1 \
             uninstall.sh \
@@ -287,6 +291,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}.zip
+            dist/ai-safe-plugin-extension-${{ needs.verify-release-version.outputs.release_version }}-webstore.zip
             dist/install.sh
             dist/install.ps1
             dist/uninstall.sh

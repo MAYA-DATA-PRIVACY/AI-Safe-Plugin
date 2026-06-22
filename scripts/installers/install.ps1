@@ -127,6 +127,44 @@ function Resolve-AiSafePluginExtensionIds {
     return [string[]]$resolved.ToArray()
 }
 
+function Get-AiSafePluginInstalledExtensionIds {
+    # Auto-detect MAYA AISafe Plugin builds already installed in a local Chromium
+    # browser (e.g. the Web Store build, whose id Google assigns and which we
+    # cannot know ahead of time). Lets native messaging work for them without the
+    # user passing anything. Unpacked dev builds are not copied into the profile
+    # Extensions folder, so those stay covered by the pinned default instead.
+    $roots = @(
+        (Join-Path $env:LOCALAPPDATA "Google\Chrome\User Data"),
+        (Join-Path $env:LOCALAPPDATA "Google\Chrome Beta\User Data"),
+        (Join-Path $env:LOCALAPPDATA "Chromium\User Data"),
+        (Join-Path $env:LOCALAPPDATA "BraveSoftware\Brave-Browser\User Data"),
+        (Join-Path $env:LOCALAPPDATA "Microsoft\Edge\User Data"),
+        (Join-Path $env:LOCALAPPDATA "Vivaldi\User Data")
+    )
+    $found = New-Object System.Collections.Generic.List[string]
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $manifests = Get-ChildItem -Path $root -Recurse -Depth 5 -Filter "manifest.json" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\Extensions\\' }
+        foreach ($manifest in $manifests) {
+            try {
+                $data = Get-Content -LiteralPath $manifest.FullName -Raw -ErrorAction Stop | ConvertFrom-Json
+            }
+            catch {
+                continue
+            }
+            if ($data.name -ne "MAYA AISafe Plugin") { continue }
+            # ...\Extensions\<id>\<version>\manifest.json → id is two levels up
+            $id = $manifest.Directory.Parent.Name
+            if ($id -match '^[a-p]{32}$' -and -not $found.Contains($id)) {
+                [void]$found.Add($id)
+            }
+        }
+    }
+
+    return [string[]]$found.ToArray()
+}
+
 function Stop-AiSafePluginScheduledTask {
     param(
         [Parameter(Mandatory = $true)]
@@ -643,6 +681,15 @@ function global:Install-AiSafePlugin {
     $resolvedExtensionIds = Resolve-AiSafePluginExtensionIds -ExtensionId $ExtensionId -ExtensionIds $ExtensionIds -DefaultExtensionId $defaultExtensionId
     if ([string]::IsNullOrWhiteSpace($ExtensionId) -and $ExtensionIds.Count -eq 0) {
         Write-Host "No extension id supplied; using the pinned AI-Safe Plugin id $defaultExtensionId."
+    }
+
+    # Belt-and-suspenders: also register any MAYA AISafe Plugin build already
+    # installed in a local browser (e.g. the Web Store build). Merge + de-dupe
+    # through Resolve, which validates each id.
+    $detectedExtensionIds = Get-AiSafePluginInstalledExtensionIds
+    if ($detectedExtensionIds.Count -gt 0) {
+        $resolvedExtensionIds = Resolve-AiSafePluginExtensionIds -ExtensionIds ($resolvedExtensionIds + $detectedExtensionIds) -DefaultExtensionId $defaultExtensionId
+        Write-Host "Detected installed MAYA AISafe Plugin extension id(s): $($detectedExtensionIds -join ', ')"
     }
 
     if ([string]::IsNullOrWhiteSpace($UvVersion)) {

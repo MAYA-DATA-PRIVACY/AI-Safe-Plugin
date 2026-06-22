@@ -300,6 +300,57 @@ harden_macos_runtime() {
   fi
 }
 
+# Auto-detect MAYA AISafe Plugin builds already installed in a local Chromium
+# browser and echo their extension ids (one per line). Web Store installs get an
+# id assigned by Google that we cannot know ahead of time; scanning the profile
+# lets native messaging work for them without anyone passing an id. Unpacked dev
+# builds are not copied into the profile Extensions folder, so those stay
+# covered by DEFAULT_EXTENSION_ID — registering both is the belt-and-suspenders
+# approach.
+EXTENSION_NAME_PATTERN='"name"[[:space:]]*:[[:space:]]*"MAYA AISafe Plugin"'
+
+detect_installed_extension_ids() {
+  local -a roots=()
+  case "$(uname -s)" in
+    Linux*)
+      roots=(
+        "${HOME}/.config/google-chrome"
+        "${HOME}/.config/google-chrome-beta"
+        "${HOME}/.config/chromium"
+        "${HOME}/.snap/chromium/current/.config/chromium"
+        "${HOME}/.config/BraveSoftware/Brave-Browser"
+        "${HOME}/.config/microsoft-edge"
+        "${HOME}/.config/vivaldi"
+      )
+      ;;
+    Darwin*)
+      roots=(
+        "${HOME}/Library/Application Support/Google/Chrome"
+        "${HOME}/Library/Application Support/Chromium"
+        "${HOME}/Library/Application Support/BraveSoftware/Brave-Browser"
+        "${HOME}/Library/Application Support/Microsoft Edge"
+        "${HOME}/Library/Application Support/Vivaldi"
+      )
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+
+  local root manifest id
+  for root in "${roots[@]}"; do
+    [[ -d "${root}" ]] || continue
+    # <root>/<Profile>/Extensions/<id>/<version>/manifest.json
+    while IFS= read -r manifest; do
+      grep -Eq "${EXTENSION_NAME_PATTERN}" "${manifest}" 2>/dev/null || continue
+      id="$(basename "$(dirname "$(dirname "${manifest}")")")"
+      if [[ "${id}" =~ ^[a-p]{32}$ ]]; then
+        printf '%s\n' "${id}"
+      fi
+    done < <(find "${root}" -maxdepth 6 -type f -name manifest.json -path '*/Extensions/*' 2>/dev/null)
+  done
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --extension-id)
@@ -419,6 +470,15 @@ else
     "${INSTALL_DIR}/.venv/bin/python" "${INSTALL_DIR}/server/gliner2_server.py" --download-only || echo "Warning: model download failed. It will download on first use."
   fi
 fi
+
+# Belt-and-suspenders: merge any auto-detected installed extension ids with the
+# ids resolved above (explicit args or the pinned default). The native-host
+# installers de-duplicate, so overlap is harmless.
+while IFS= read -r detected_id; do
+  [[ -n "${detected_id}" ]] || continue
+  EXTENSION_IDS+=("${detected_id}")
+done < <(detect_installed_extension_ids)
+echo "Registering native messaging for extension id(s): ${EXTENSION_IDS[*]}"
 
 if [[ "${PLATFORM}" == "linux" ]]; then
   bash server/native-host/install_linux.sh "${EXTENSION_IDS[@]}"

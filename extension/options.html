@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI-Safe Plugin Settings</title>
+  <title>MAYA AISafe Plugin Settings</title>
   <link rel="stylesheet" href="popup.css">
   <link rel="stylesheet" href="options.css">
 </head>
@@ -22,9 +22,9 @@
     <aside class="opt-sidebar">
 
       <div class="opt-brand">
-        <img src="assets/maya/maya-mark.png" class="opt-brand-logo-img" alt="AI-Safe Plugin" width="34" height="34">
+        <img src="assets/maya/maya-mark.png" class="opt-brand-logo-img" alt="MAYA AISafe Plugin" width="34" height="34">
         <div class="opt-brand-text">
-          <span class="opt-brand-name">AI-Safe Plugin</span>
+          <span class="opt-brand-name">MAYA AISafe Plugin</span>
         </div>
       </div>
 
@@ -54,7 +54,7 @@
           <span class="opt-update-pill" id="sidebarUpdatePill">Checking</span>
         </div>
         <div class="opt-update-title" id="sidebarUpdateTitle">Checking GitHub releases…</div>
-        <div class="opt-update-sub" id="sidebarUpdateSubtext">We’ll tell you here when a newer AI-Safe Plugin extension build is available.</div>
+        <div class="opt-update-sub" id="sidebarUpdateSubtext">We’ll tell you here when a newer MAYA AISafe Plugin extension build is available.</div>
       </a>
 
       <nav class="opt-nav" aria-label="Settings sections">
@@ -154,7 +154,7 @@
           <div class="opt-card opt-update-notice" id="releaseNoticeCard" hidden>
             <div class="opt-update-notice-copy">
               <div class="opt-update-notice-badge" id="releaseNoticeBadge">Update available</div>
-              <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer AI-Safe Plugin extension release is ready.</div>
+              <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer MAYA AISafe Plugin extension release is ready.</div>
               <p class="opt-update-notice-body" id="releaseNoticeBody">Install or reload the latest extension build, then refresh the local server bundle below so both stay in sync.</p>
             </div>
             <a id="releaseNoticeLink" href="#" target="_blank" rel="noreferrer" class="opt-update-notice-link">Open release</a>
@@ -200,7 +200,7 @@
             <p class="opt-notice-body">
               GLiNER2 runs once on <code>127.0.0.1:8765</code> and is shared across Chrome, Brave,
               Edge, and Vivaldi automatically. Using multiple browsers?
-              Open AI-Safe Plugin in each browser once and run the install command shown there so that
+              Open MAYA AISafe Plugin in each browser once and run the install command shown there so that
               browser's extension ID is registered with the same local server.
             </p>
           </div>
@@ -256,9 +256,9 @@
                 <div class="maya-api-guidance-body" id="mayaApiGuidanceBody">
                   <p class="maya-api-guidance-title">What is Anonymize mode?</p>
                   <p class="maya-api-guidance-desc">Instead of blocking text with placeholders, Anonymize replaces supported sensitive information with realistic fake equivalents through Maya — so enterprise LLMs see safe text while your real data stays out of their prompts.</p>
-                  <p class="maya-api-guidance-desc" style="margin-top:2px">AI-Safe Plugin anonymizes through Maya: <strong>Names · Emails · Phone numbers · Addresses · Locations · Organizations · Dates of birth · SSNs · Credit card numbers</strong></p>
+                  <p class="maya-api-guidance-desc" style="margin-top:2px">MAYA AISafe Plugin anonymizes through Maya: <strong>Names · Emails · Phone numbers · Addresses · Locations · Organizations · Dates of birth · SSNs · Credit card numbers</strong></p>
                   <p class="maya-api-guidance-example">e.g. <span class="anon-ex-real">Priya Sharma</span> → <span class="anon-ex-fake">Claire Bennett</span> &nbsp;&nbsp; <span class="anon-ex-real">priya@acme.com</span> → <span class="anon-ex-fake">claire.b@mailhub.io</span></p>
-                  <p class="maya-api-guidance-desc" style="margin-top:4px">Unsupported detections stay local and remain redacted. If Maya is unavailable for a supported type, AI-Safe Plugin falls back to safe masking before the prompt leaves your browser.</p>
+                  <p class="maya-api-guidance-desc" style="margin-top:4px">Unsupported detections stay local and remain redacted. If Maya is unavailable for a supported type, MAYA AISafe Plugin falls back to safe masking before the prompt leaves your browser.</p>
                   <p class="maya-api-guidance-desc" style="margin-top:6px">A <strong>Maya API Key</strong> is required. Sign up free at <a href="https://app.mayadataprivacy.eu" target="_blank" rel="noreferrer" class="maya-api-link">app.mayadataprivacy.eu</a>, then copy your key from the <strong>Profile</strong> section and paste it below.</p>
                   <a href="https://app.mayadataprivacy.eu" target="_blank" rel="noreferrer" class="maya-api-get-key-btn">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -309,7 +309,7 @@
           <div id="diagnosticsPanel" class="tool-panel" hidden>
             <section class="server-tool-panel">
               <p class="panel-title">Diagnostics</p>
-              <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect AI-Safe Plugin&apos;s runtime and do not change what gets sent to enterprise LLMs.</p>
+              <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect MAYA AISafe Plugin&apos;s runtime and do not change what gets sent to enterprise LLMs.</p>
               <label class="field field-tight" style="margin-bottom:8px">
                 <span style="font-size:11px;font-weight:600;color:var(--ink)">GLiNER2 Model</span>
                 <select id="modelSelect">
@@ -369,7 +369,7 @@
       <section class="opt-section" id="section-protection">
         <div class="opt-section-header">
           <h2 class="opt-section-title">Protection</h2>
-          <p class="opt-section-desc">Control how and where AI-Safe Plugin monitors for personal information.</p>
+          <p class="opt-section-desc">Control how and where MAYA AISafe Plugin monitors for personal information.</p>
         </div>
 
         <div class="opt-card">
@@ -396,7 +396,7 @@
       <section class="opt-section" id="section-detection">
         <div class="opt-section-header">
           <h2 class="opt-section-title">Detection</h2>
-          <p class="opt-section-desc">Tune how aggressively AI-Safe Plugin identifies and replaces personal data.</p>
+          <p class="opt-section-desc">Tune how aggressively MAYA AISafe Plugin identifies and replaces personal data.</p>
         </div>
 
         <div class="opt-card">
@@ -429,7 +429,7 @@
       <section class="opt-section" id="section-pii">
         <div class="opt-section-header">
           <h2 class="opt-section-title">PII Types</h2>
-          <p class="opt-section-desc">Choose which categories of personal information AI-Safe Plugin should detect and redact.</p>
+          <p class="opt-section-desc">Choose which categories of personal information MAYA AISafe Plugin should detect and redact.</p>
         </div>
 
         <div class="opt-card">
@@ -520,9 +520,9 @@
 
         <div class="opt-card opt-danger-zone">
           <div class="opt-danger-header">Danger zone</div>
-          <p class="hint">Permanently deletes all AI-Safe Plugin data stored in your browser and restores default settings. This removes your settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats. This cannot be undone.</p>
+          <p class="hint">Permanently deletes all MAYA AISafe Plugin data stored in your browser and restores default settings. This removes your settings, custom patterns, custom entity types, Maya API key, Hugging Face token, anonymisation seed, server-URL override, per-site alias ledgers, cached redaction state, onboarding flags, and local stats. This cannot be undone.</p>
           <div class="button-row">
-            <button id="deleteAllDataButton" type="button" class="opt-danger-button">Delete all AI-Safe Plugin data</button>
+            <button id="deleteAllDataButton" type="button" class="opt-danger-button">Delete all MAYA AISafe Plugin data</button>
           </div>
         </div>
       </section>
@@ -534,12 +534,12 @@
       <section class="opt-section" id="section-about">
         <div class="opt-section-header">
           <h2 class="opt-section-title">About</h2>
-          <p class="opt-section-desc">AI-Safe Plugin is an open-source privacy plugin built on top of GLiNER2 by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a>.</p>
+          <p class="opt-section-desc">MAYA AISafe Plugin is an open-source privacy plugin built on top of GLiNER2 by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a>.</p>
         </div>
 
         <div class="opt-card opt-privacy-impact">
           <div class="opt-card-title">Your privacy impact</div>
-          <p class="hint" style="margin:2px 0 12px">Counts only — AI-Safe Plugin never stores the values it protected or the sites you used.</p>
+          <p class="hint" style="margin:2px 0 12px">Counts only — MAYA AISafe Plugin never stores the values it protected or the sites you used.</p>
           <div class="opt-about-facts">
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">Total protected</span>
@@ -559,7 +559,7 @@
         <div class="opt-card opt-about-card">
           <div class="opt-about-brand">
             <div>
-              <div class="opt-about-name">AI-Safe Plugin</div>
+              <div class="opt-about-name">MAYA AISafe Plugin</div>
               <div class="opt-about-sub">An open privacy tool by <a href="https://www.mayadataprivacy.com/" target="_blank" rel="noreferrer" class="maya-link"><strong>Maya Data Privacy</strong></a>, powered by GLiNER2</div>
             </div>
           </div>
@@ -578,7 +578,7 @@
             </div>
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">Shortcuts</span>
-              <span class="opt-about-fact-val">Alt+Shift+R redact all in the focused field; Alt+Shift+V pause or resume AI-Safe Plugin on this site</span>
+              <span class="opt-about-fact-val">Alt+Shift+R redact all in the focused field; Alt+Shift+V pause or resume MAYA AISafe Plugin on this site</span>
             </div>
             <div class="opt-about-fact">
               <span class="opt-about-fact-key">License</span>

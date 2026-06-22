@@ -118,7 +118,7 @@ const LABEL_EXPLANATIONS = {
 };
 const LABEL_EXPLANATION_FALLBACK = 'This looks like sensitive information you may not want to share.';
 
-// ── Selectors that identify known LLM assistant / thread areas so AI-Safe Plugin never
+// ── Selectors that identify known LLM assistant / thread areas so MAYA AISafe Plugin never
 // scans or mutates provider-owned conversation history. ─────────────────────
 const ASSISTANT_RESPONSE_SELECTORS = [
   '[data-message-author-role="assistant"]',
@@ -411,10 +411,10 @@ class AiSafePluginContentController {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'initialize' });
       if (response?.mode) {
-        console.debug('[AI-Safe Plugin] detection mode:', response.mode);
+        console.debug('[MAYA AISafe Plugin] detection mode:', response.mode);
       }
     } catch (error) {
-      console.error('[AI-Safe Plugin] initialize failed:', error);
+      console.error('[MAYA AISafe Plugin] initialize failed:', error);
     }
   }
 
@@ -801,7 +801,7 @@ class AiSafePluginContentController {
   startDynamicMonitoring() {
     // This is now integrated into startMonitoring's MutationObserver
     // but we keep the method for clarity and potential separate use
-    console.debug('[AI-Safe Plugin] Dynamic monitoring active for:', this.detectPlatform());
+    console.debug('[MAYA AISafe Plugin] Dynamic monitoring active for:', this.detectPlatform());
   }
 
   // Polling fallback for SPA navigation that doesn't trigger MutationObserver
@@ -823,7 +823,7 @@ class AiSafePluginContentController {
       try {
         elements = document.querySelectorAll(selector);
       } catch (error) {
-        console.warn('[AI-Safe Plugin] Ignoring invalid monitored selector:', selector, error?.message || error);
+        console.warn('[MAYA AISafe Plugin] Ignoring invalid monitored selector:', selector, error?.message || error);
         return;
       }
       elements.forEach((element) => {
@@ -1065,7 +1065,7 @@ class AiSafePluginContentController {
       }
       if (event.key === 'Enter' && !event.shiftKey && this.hasPendingProtection(element)) {
         event.preventDefault();
-        this.showNotification('AI-Safe Plugin is still protecting this message. Please wait a moment.', 'warning');
+        this.showNotification('MAYA AISafe Plugin is still protecting this message. Please wait a moment.', 'warning');
       }
       if (event.key === 'Enter' && !event.shiftKey && this.hasUnreviewedRedactions(element)) {
         event.preventDefault();
@@ -1097,7 +1097,7 @@ class AiSafePluginContentController {
       handleSubmit = (event) => {
         if (this.hasPendingProtection(element)) {
           event.preventDefault();
-          this.showNotification('AI-Safe Plugin is still protecting this message. Please wait a moment.', 'warning');
+          this.showNotification('MAYA AISafe Plugin is still protecting this message. Please wait a moment.', 'warning');
         }
         if (this.hasUnreviewedRedactions(element)) {
           event.preventDefault();
@@ -1265,7 +1265,7 @@ class AiSafePluginContentController {
       badge.className = 'ps-field-badge';
       badge.setAttribute('role', 'button');
       badge.tabIndex = 0;
-      badge.setAttribute('aria-label', 'AI-Safe Plugin');
+      badge.setAttribute('aria-label', 'MAYA AISafe Plugin');
 
       const mark = this._buildBadgeAtom();
       badge.appendChild(mark);
@@ -1340,7 +1340,7 @@ class AiSafePluginContentController {
 
     if (analyzing) {
       badge.classList.add('ps-badge-scanning');
-      badge.title = 'AI-Safe Plugin — scanning';
+      badge.title = 'MAYA AISafe Plugin — scanning';
       countEl.textContent = '';
     } else if (unredacted.length > 0) {
       badge.classList.add('ps-badge-pending');
@@ -1364,11 +1364,11 @@ class AiSafePluginContentController {
     } else if (this.modelOffline) {
       badge.classList.add('ps-badge-idle', 'ps-badge-fallback');
       countEl.textContent = '';
-      badge.title = 'AI-Safe Plugin — regex-only mode';
+      badge.title = 'MAYA AISafe Plugin — regex-only mode';
     } else {
       badge.classList.add('ps-badge-idle');
       countEl.textContent = '';
-      badge.title = 'AI-Safe Plugin';
+      badge.title = 'MAYA AISafe Plugin';
     }
 
     // Offline is a modifier on top of the other states: keep the dot visible
@@ -1376,7 +1376,7 @@ class AiSafePluginContentController {
     if (this.modelOffline) badge.classList.add('ps-badge-fallback');
 
     // Mirror the per-state tooltip into the accessible name (U8).
-    badge.setAttribute('aria-label', badge.title || 'AI-Safe Plugin');
+    badge.setAttribute('aria-label', badge.title || 'MAYA AISafe Plugin');
   }
 
   positionFieldBadge(element, badge) {
@@ -1498,7 +1498,7 @@ class AiSafePluginContentController {
     const panel = document.createElement('div');
     panel.className = 'ps-field-panel';
     panel.setAttribute('role', 'dialog');
-    panel.setAttribute('aria-label', 'AI-Safe Plugin detections');
+    panel.setAttribute('aria-label', 'MAYA AISafe Plugin detections');
 
     // ── Header ──
     const header = document.createElement('div');
@@ -1506,7 +1506,7 @@ class AiSafePluginContentController {
 
     const title = document.createElement('span');
     title.className = 'ps-panel-title';
-    title.textContent = `AI-Safe Plugin · ${state.items.length} item${state.items.length === 1 ? '' : 's'}`;
+    title.textContent = `MAYA AISafe Plugin · ${state.items.length} item${state.items.length === 1 ? '' : 's'}`;
     header.appendChild(title);
 
     // Risk chip (sourced from stored sensitivity)
@@ -2147,7 +2147,7 @@ class AiSafePluginContentController {
       this.updateStats(newItems.filter((i) => !i.redacted).length, 0);
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
     } catch (error) {
-      console.error('[AI-Safe Plugin] detection error:', error);
+      console.error('[MAYA AISafe Plugin] detection error:', error);
       const staged = this.redactions.get(element);
       if (staged?.pendingRefinement) {
         staged.pendingRefinement = false;
@@ -2596,7 +2596,7 @@ class AiSafePluginContentController {
       this.siteRedactCount += 1;
       chrome.storage.local.set({ [this.getSiteRedactCountKey()]: this.siteRedactCount });
       if (this.siteRedactCount === 3 && !this.settings.autoRedact) {
-        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in AI-Safe Plugin settings to do this automatically.', 'info'), 1200);
+        setTimeout(() => this.showNotification('Tip: enable Auto-Redact in MAYA AISafe Plugin settings to do this automatically.', 'info'), 1200);
       }
     }
   }
@@ -3266,7 +3266,7 @@ class AiSafePluginContentController {
       card = document.createElement('div');
       card.className = 'ps-popover';
       card.setAttribute('role', 'dialog');
-      card.setAttribute('aria-label', 'AI-Safe Plugin detection');
+      card.setAttribute('aria-label', 'MAYA AISafe Plugin detection');
       card.addEventListener('mouseenter', () => this.cancelPopoverClose());
       card.addEventListener('mouseleave', (event) => {
         const st = this.activePopoverState;
@@ -4082,7 +4082,7 @@ class AiSafePluginContentController {
 
       chrome.storage.local.set({ [key]: payload });
     } catch (e) {
-      console.error('[AI-Safe Plugin] cache persist error:', e);
+      console.error('[MAYA AISafe Plugin] cache persist error:', e);
     }
   }
 
@@ -4103,7 +4103,7 @@ class AiSafePluginContentController {
         chrome.storage.local.remove(keysToRemove);
       }
     } catch (e) {
-      console.error('[AI-Safe Plugin] cache rehydration error:', e);
+      console.error('[MAYA AISafe Plugin] cache rehydration error:', e);
     }
   }
 
@@ -4371,7 +4371,7 @@ class AiSafePluginContentController {
 
     chrome.storage.local.set({ [MASK_MODE_HINT_STORAGE_KEY]: true });
     this.showNotification(
-      'Mask mode replaces sensitive text with [TYPE REDACTED] tags. For more natural replacements later, switch to Anonymize in AI-Safe Plugin settings.',
+      'Mask mode replaces sensitive text with [TYPE REDACTED] tags. For more natural replacements later, switch to Anonymize in MAYA AISafe Plugin settings.',
       'info',
       3600
     );
@@ -4568,7 +4568,7 @@ class AiSafePluginContentController {
   }
 
   // ── Persistent per-site ignore list (U3) ──────────────────────────────────
-  // Values the user chose to "Ignore on this site" so AI-Safe Plugin stops flagging them
+  // Values the user chose to "Ignore on this site" so MAYA AISafe Plugin stops flagging them
   // across reloads. Stored per host with a 90-day TTL and FIFO cap.
 
   getSiteIgnoredKey() {
@@ -4635,8 +4635,8 @@ class AiSafePluginContentController {
     return !HIGH_RISK_LABELS.includes(label);
   }
 
-  // Build the popup/settings redaction key from currently active AI-Safe Plugin states only.
-  // AI-Safe Plugin must never rewrite provider-owned thread history with original values.
+  // Build the popup/settings redaction key from currently active MAYA AISafe Plugin states only.
+  // MAYA AISafe Plugin must never rewrite provider-owned thread history with original values.
   buildVisibleRedactionKey() {
     // Start with persisted ledger so entries survive after the chat app
     // clears the input field on submit.

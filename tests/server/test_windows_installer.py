@@ -129,6 +129,19 @@ def test_install_ai_safe_plugin_builds_native_host_command_as_flat_array():
     assert '$nativeHostCommand = @(Join-Path $InstallDir "server\\native-host\\install_windows.bat") + $resolvedExtensionIds' in script
     assert 'Invoke-AiSafePluginCommand -Command $nativeHostCommand' in script
 
+def test_install_ai_safe_plugin_auto_detects_installed_extension_ids():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    # Belt-and-suspenders: scan local Chromium profiles for the published build
+    # (whose id Google assigns) and register it alongside the pinned default.
+    assert "function Get-AiSafePluginInstalledExtensionIds" in script
+    assert '$data.name -ne "MAYA AISafe Plugin"' in script
+    assert "$id = $manifest.Directory.Parent.Name" in script
+    assert "$detectedExtensionIds = Get-AiSafePluginInstalledExtensionIds" in script
+    # The pinned default must still be present via Resolve.
+    assert PINNED_EXTENSION_ID in script
+
+
 def test_install_ai_safe_plugin_warns_and_continues_when_sha256sums_missing():
     script = INSTALLER_PATH.read_text(encoding="utf-8")
 
