@@ -1,5 +1,5 @@
 /**
- * popup.spec.js — E2E tests for the AI-Safe Plugin extension popup (CommonJS).
+ * popup.spec.js — E2E tests for the MAYA AISafe Plugin extension popup (CommonJS).
  */
 const { test, expect } = require('./fixtures');
 const { startMockServer, stopMockServer } = require('./mock_server');
@@ -50,17 +50,17 @@ async function openPopupForSite(context, extensionId, url) {
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 test.describe('Popup UI', () => {
-    test('popup page title is "AI-Safe Plugin"', async ({ extensionPopup }) => {
+    test('popup page title is "MAYA AISafe Plugin"', async ({ extensionPopup }) => {
         const { page } = extensionPopup;
-        await expect(page).toHaveTitle(/AI-Safe Plugin/i);
+        await expect(page).toHaveTitle(/MAYA AISafe Plugin/i);
     });
 
-    test('AI-Safe Plugin branding is visible', async ({ extensionPopup }) => {
+    test('MAYA AISafe Plugin branding is visible', async ({ extensionPopup }) => {
         const { page } = extensionPopup;
         await markOnboardingDone(page);
         await page.reload();
         await page.waitForLoadState('domcontentloaded');
-        await expect(page.locator('.brand-name')).toHaveText('AI-Safe Plugin');
+        await expect(page.locator('.brand-name')).toHaveText('MAYA AISafe Plugin');
     });
 
     test('status card is visible', async ({ extensionPopup }) => {
@@ -177,7 +177,7 @@ test.describe('Onboarding Wizard', () => {
         await clearOnboarding(page);
         await page.reload();
         await page.waitForTimeout(500);
-        await expect(page.locator('.onboarding-title').first()).toContainText('Welcome to AI-Safe Plugin');
+        await expect(page.locator('.onboarding-title').first()).toContainText('Welcome to MAYA AISafe Plugin');
     });
 
     test('skip button hides the overlay', async ({ extensionPopup }) => {
@@ -371,7 +371,7 @@ test.describe('Release Status UX', () => {
         });
 
         await expect(page.locator('#sidebarUpdateTitle')).toHaveText('Backend current, extension behind');
-        await expect(page.locator('#releaseNoticeTitle')).toHaveText('Reload the extension to finish updating AI-Safe Plugin');
+        await expect(page.locator('#releaseNoticeTitle')).toHaveText('Reload the extension to finish updating MAYA AISafe Plugin');
         await expect(page.locator('#serverUpdateBlock')).toBeHidden();
     });
 
@@ -519,7 +519,7 @@ test.describe('Options Navigation', () => {
     });
 });
 
-test.describe('Delete all AI-Safe Plugin data', () => {
+test.describe('Delete all MAYA AISafe Plugin data', () => {
     test('two-click wipe clears sensitive keys and re-seeds defaults', async ({ extensionOptions }) => {
         const { page } = extensionOptions;
 

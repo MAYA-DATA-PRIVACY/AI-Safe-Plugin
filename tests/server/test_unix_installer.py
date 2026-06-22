@@ -78,3 +78,16 @@ def test_unix_installer_warns_and_continues_when_sha256sums_missing():
     assert "SHA256SUMS not available from release; skipping checksum verification" in script
     # A hard mismatch aborts via fail(); missing sums returns 0 (continue).
     assert "Checksum verification failed for ${asset_name}. Aborting install." in script
+
+
+def test_unix_installer_auto_detects_installed_extension_ids():
+    script = INSTALLER_PATH.read_text(encoding="utf-8")
+
+    # Belt-and-suspenders: scan local Chromium profiles for the published build
+    # (whose id Google assigns) and register it alongside the pinned default.
+    assert "detect_installed_extension_ids()" in script
+    assert '"name"[[:space:]]*:[[:space:]]*"MAYA AISafe Plugin"' in script
+    assert "-name manifest.json -path '*/Extensions/*'" in script
+    assert "EXTENSION_IDS+=(\"${detected_id}\")" in script
+    # The pinned default must still be the fallback when nothing is detected.
+    assert 'EXTENSION_IDS=("${DEFAULT_EXTENSION_ID}")' in script

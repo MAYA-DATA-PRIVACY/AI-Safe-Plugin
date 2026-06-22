@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI-Safe Plugin</title>
+  <title>MAYA AISafe Plugin</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -17,7 +17,7 @@
     </div>
 
     <!-- ══════════ Onboarding Wizard Overlay ══════════ -->
-    <div id="onboardingOverlay" class="onboarding-overlay" hidden aria-modal="true" role="dialog" aria-label="Welcome to AI-Safe Plugin">
+    <div id="onboardingOverlay" class="onboarding-overlay" hidden aria-modal="true" role="dialog" aria-label="Welcome to MAYA AISafe Plugin">
       <div class="onboarding-card">
 
         <div class="onboarding-dots" aria-hidden="true">
@@ -29,10 +29,10 @@
 
         <div class="onboarding-step" data-step="0">
           <div class="onboarding-icon" aria-hidden="true">
-            <img src="assets/maya/maya-mark.png" alt="AI-Safe Plugin" class="onboarding-logo-img">
+            <img src="assets/maya/maya-mark.png" alt="MAYA AISafe Plugin" class="onboarding-logo-img">
           </div>
-          <h2 class="onboarding-title">Welcome to AI-Safe Plugin</h2>
-          <p class="onboarding-body">AI-Safe Plugin detects and redacts personal data <strong>before it leaves your browser</strong> — powered by a local AI model, with no cloud calls unless you enable Maya anonymisation.</p>
+          <h2 class="onboarding-title">Welcome to MAYA AISafe Plugin</h2>
+          <p class="onboarding-body">MAYA AISafe Plugin detects and redacts personal data <strong>before it leaves your browser</strong> — powered by a local AI model, with no cloud calls unless you enable Maya anonymisation.</p>
           <ul class="onboarding-bullets">
             <li>Local detection by default — optional Maya anonymisation only when you enable it</li>
             <li>GLiNER2 zero-shot NER for names, emails, SSNs and more</li>
@@ -47,7 +47,7 @@
         <div class="onboarding-step" data-step="1" hidden>
           <div class="onboarding-step-badge">Step 1 of 2</div>
           <h2 class="onboarding-title">Install the Native Bridge</h2>
-          <p class="onboarding-body">Run this command once. It installs AI-Safe Plugin's local server bundle and registers the native bridge so the extension can control it.</p>
+          <p class="onboarding-body">Run this command once. It installs MAYA AISafe Plugin's local server bundle and registers the native bridge so the extension can control it.</p>
           <div class="onboarding-cmd-block">
             <div class="onboarding-cmd-header">
               <span>Run in terminal</span>
@@ -76,7 +76,7 @@
         <div class="onboarding-step" data-step="3" hidden>
           <div class="onboarding-done-icon" aria-hidden="true">✓</div>
           <h2 class="onboarding-title">You're protected!</h2>
-          <p class="onboarding-body">AI-Safe Plugin is now active. Open any AI chat site and start typing — PII will be detected and redacted automatically.</p>
+          <p class="onboarding-body">MAYA AISafe Plugin is now active. Open any AI chat site and start typing — PII will be detected and redacted automatically.</p>
           <div class="onboarding-actions">
             <button id="onboardingTryItBtn" type="button" class="onboarding-primary-btn">Try it now</button>
             <button id="onboardingDoneBtn" type="button" class="onboarding-skip-btn">Open Dashboard</button>
@@ -90,8 +90,8 @@
     <!-- ─── HEADER: dark, logo + live status ─── -->
     <header class="header">
       <div class="brand">
-        <img src="assets/maya/maya-mark.png" class="brand-logo-img" alt="AI-Safe Plugin" width="30" height="30">
-        <span class="brand-name">AI-Safe Plugin</span>
+        <img src="assets/maya/maya-mark.png" class="brand-logo-img" alt="MAYA AISafe Plugin" width="30" height="30">
+        <span class="brand-name">MAYA AISafe Plugin</span>
       </div>
     </header>
 
@@ -222,7 +222,7 @@
         <div class="opt-card opt-update-notice" id="releaseNoticeCard" hidden>
           <div class="opt-update-notice-copy">
             <div class="opt-update-notice-badge" id="releaseNoticeBadge">Update available</div>
-            <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer AI-Safe Plugin extension release is ready.</div>
+            <div class="opt-update-notice-title" id="releaseNoticeTitle">A newer MAYA AISafe Plugin extension release is ready.</div>
             <p class="opt-update-notice-body" id="releaseNoticeBody">Install or reload the latest extension build, then refresh the local server bundle below so both stay in sync.</p>
           </div>
           <a id="releaseNoticeLink" href="#" target="_blank" rel="noreferrer" class="opt-update-notice-link">Open release</a>
@@ -284,7 +284,7 @@
         <div id="apiKeyPanel" class="tool-panel" hidden>
           <section class="server-tool-panel token-tools">
             <p class="panel-title">Anonymization API Key</p>
-            <p class="hint" style="margin-top:4px">Required for Anonymize mode. Stored locally and used only for Maya anonymization through AI-Safe Plugin&apos;s local proxy. Enterprise LLMs receive only the resulting safe text.</p>
+            <p class="hint" style="margin-top:4px">Required for Anonymize mode. Stored locally and used only for Maya anonymization through MAYA AISafe Plugin&apos;s local proxy. Enterprise LLMs receive only the resulting safe text.</p>
             <div id="apiKeySavedState" hidden>
               <div class="api-key-saved-card">
                 <div class="api-key-saved-info">
@@ -319,7 +319,7 @@
         <div id="diagnosticsPanel" class="tool-panel" hidden>
           <section class="server-tool-panel">
             <p class="panel-title">Diagnostics</p>
-            <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect AI-Safe Plugin&apos;s local runtime and do not change what gets sent to enterprise LLMs.</p>
+            <p class="hint" style="margin-top:4px">Diagnostics are local-only troubleshooting data from this device. They help you inspect MAYA AISafe Plugin&apos;s local runtime and do not change what gets sent to enterprise LLMs.</p>
             <label class="field field-tight" style="margin-bottom:8px">
               <span style="font-size:11px;font-weight:600;color:var(--ink)">GLiNER2 Model</span>
               <select id="modelSelect">
@@ -446,7 +446,7 @@
       <details class="card advanced">
         <summary>Advanced</summary>
         <div class="advanced-body">
-          <p class="hint">Customize which websites and input fields AI-Safe Plugin monitors.</p>
+          <p class="hint">Customize which websites and input fields MAYA AISafe Plugin monitors.</p>
           <label class="field">
             <span>Scoped Websites (one per line)</span>
             <textarea id="monitoredSitesInput" rows="4" spellcheck="false" placeholder="claude.ai&#10;chatgpt.com&#10;gemini.google.com"></textarea>

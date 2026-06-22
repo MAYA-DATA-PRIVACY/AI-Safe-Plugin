@@ -686,7 +686,7 @@ class SettingsManager {
     }
     if (this.serverState.portConflict) {
       text.textContent = 'Active (Port Busy)';
-      sub.textContent = 'Another local process owns port 8765. AI-Safe Plugin will not stop it automatically.';
+      sub.textContent = 'Another local process owns port 8765. MAYA AISafe Plugin will not stop it automatically.';
       return;
     }
     if (this.serverState.running && !this.serverState.healthy) {
@@ -732,7 +732,7 @@ class SettingsManager {
     document.getElementById('redactionCount').textContent = this.formatNumber(this.stats.redactions);
   }
 
-  // U7: durable "what AI-Safe Plugin saved you" card (options About). Counts only.
+  // U7: durable "what MAYA AISafe Plugin saved you" card (options About). Counts only.
   renderPrivacyStats() {
     const totalEl = document.getElementById('statTotalProtected');
     if (!totalEl) return; // only present on the options page
@@ -828,7 +828,7 @@ class SettingsManager {
       : [...new Set([...sites, host])];
     this.settings.excludedSites = next;
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ excludedSites: next, siteSnoozes }, () => this.setMessage(enabled ? 'AI-Safe Plugin enabled here.' : 'AI-Safe Plugin paused on this site.'));
+    chrome.storage.local.set({ excludedSites: next, siteSnoozes }, () => this.setMessage(enabled ? 'MAYA AISafe Plugin enabled here.' : 'MAYA AISafe Plugin paused on this site.'));
     this.renderSiteControls();
   }
 
@@ -840,7 +840,7 @@ class SettingsManager {
     siteSnoozes[host] = Date.now() + SITE_SNOOZE_MS;
     this.settings.excludedSites = excludedSites;
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ excludedSites, siteSnoozes }, () => this.setMessage('AI-Safe Plugin paused here for 1 hour.'));
+    chrome.storage.local.set({ excludedSites, siteSnoozes }, () => this.setMessage('MAYA AISafe Plugin paused here for 1 hour.'));
     this.renderSiteControls();
   }
 
@@ -850,7 +850,7 @@ class SettingsManager {
     const siteSnoozes = this.pruneSiteSnoozes(this.settings.siteSnoozes);
     delete siteSnoozes[host];
     this.settings.siteSnoozes = siteSnoozes;
-    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('AI-Safe Plugin resumed here.'));
+    chrome.storage.local.set({ siteSnoozes }, () => this.setMessage('MAYA AISafe Plugin resumed here.'));
     this.renderSiteControls();
   }
 
@@ -1170,7 +1170,7 @@ class SettingsManager {
       setUpdateBlockVisible(false);
       releaseText.textContent = 'Checking GitHub for the latest release…';
       releaseSubtext.textContent = 'Re-run this command after a new release to update the local server bundle while keeping your cache and local config.';
-      applySidebarState('is-loading', 'Checking', 'Checking for updates', 'AI-Safe Plugin is checking whether a newer extension or local server bundle is available.');
+      applySidebarState('is-loading', 'Checking', 'Checking for updates', 'MAYA AISafe Plugin is checking whether a newer extension or local server bundle is available.');
       return;
     }
 
@@ -1184,12 +1184,12 @@ class SettingsManager {
           return;
         }
         releaseText.textContent = `Local server verified: ${installedBundleTag}`;
-        releaseSubtext.textContent = `${this.releaseInfo.error || 'GitHub could not be reached right now.'} AI-Safe Plugin can confirm the installed local server bundle on this machine, but it cannot check for newer releases at the moment.`;
+        releaseSubtext.textContent = `${this.releaseInfo.error || 'GitHub could not be reached right now.'} MAYA AISafe Plugin can confirm the installed local server bundle on this machine, but it cannot check for newer releases at the moment.`;
         applySidebarState('is-current', 'Verified', 'Local server verified', `Installed local server bundle ${installedBundleTag} is known. Checking GitHub for newer releases is temporarily unavailable.`);
         showNotice(
           'Release check delayed',
           'Installed local server bundle is verified',
-          `AI-Safe Plugin can confirm that this machine is running local server bundle ${installedBundleTag}. GitHub could not be reached to check whether anything newer exists right now.`
+          `MAYA AISafe Plugin can confirm that this machine is running local server bundle ${installedBundleTag}. GitHub could not be reached to check whether anything newer exists right now.`
         );
         return;
       }
@@ -1223,7 +1223,7 @@ class SettingsManager {
       applySidebarState('is-available', 'Update', 'Backend current, extension behind', `The local server bundle is already on ${latestTag}, but the extension UI is still on v${currentVersion}.`);
       showNotice(
         'Extension update',
-        'Reload the extension to finish updating AI-Safe Plugin',
+        'Reload the extension to finish updating MAYA AISafe Plugin',
         `Your local server bundle already matches ${latestTag}. Reload or reinstall the extension build from v${currentVersion} so the UI and backend are on the same release.`
       );
       return;
@@ -1231,9 +1231,9 @@ class SettingsManager {
 
     if (extensionUpdateAvailable && bundleNeedsRefresh) {
       setUpdateBlockVisible(true);
-      releaseText.textContent = `AI-Safe Plugin update available: ${latestTag}`;
+      releaseText.textContent = `MAYA AISafe Plugin update available: ${latestTag}`;
       releaseSubtext.textContent = `Published ${published}. Extension build is v${currentVersion} and the installed local server bundle is ${installedBundleTag}. Update or reload the extension, then run the refresh command below so both parts land on ${latestTag}.`;
-      applySidebarState('is-available', 'Update', 'Extension and server update available', `A newer AI-Safe Plugin release is available, and this machine still has the ${installedBundleTag} local server bundle.`);
+      applySidebarState('is-available', 'Update', 'Extension and server update available', `A newer MAYA AISafe Plugin release is available, and this machine still has the ${installedBundleTag} local server bundle.`);
       showNotice(
         'Update available',
         'Update the extension, then refresh the local server bundle',
@@ -1245,12 +1245,12 @@ class SettingsManager {
     if (extensionUpdateAvailable && bundleUnknown) {
       setUpdateBlockVisible(true);
       releaseText.textContent = `Extension update available: ${latestTag} (backend version unknown)`;
-      releaseSubtext.textContent = `Published ${published}. Update or reload the extension build first. Then run the refresh command below once so AI-Safe Plugin can stamp and verify the installed local server bundle version.`;
-      applySidebarState('is-available', 'Update', 'Extension update available', `A newer AI-Safe Plugin release is available, and this install still needs backend release metadata stamped locally.`);
+      releaseSubtext.textContent = `Published ${published}. Update or reload the extension build first. Then run the refresh command below once so MAYA AISafe Plugin can stamp and verify the installed local server bundle version.`;
+      applySidebarState('is-available', 'Update', 'Extension update available', `A newer MAYA AISafe Plugin release is available, and this install still needs backend release metadata stamped locally.`);
       showNotice(
         'Update available',
         'Update the extension and refresh local server metadata',
-        `You’re currently on v${currentVersion}. Reload the extension first, then run the refresh command below so AI-Safe Plugin can verify which local server bundle is installed.`
+        `You’re currently on v${currentVersion}. Reload the extension first, then run the refresh command below so MAYA AISafe Plugin can verify which local server bundle is installed.`
       );
       return;
     }
@@ -1260,7 +1260,7 @@ class SettingsManager {
       const installedText = installedBundleTag || 'unknown bundle version';
       releaseText.textContent = `Local server bundle update available: ${latestTag}`;
       releaseSubtext.textContent = `Published ${published}. Installed bundle is ${installedText}. Run the refresh command below; once the local server bundle matches ${latestTag}, this notice will clear.`;
-      applySidebarState('is-available', 'Update', 'Local server update available', installedBundleTag ? 'A newer local server bundle is available for this install.' : 'This install needs one refresh so AI-Safe Plugin can track the local server bundle version precisely.');
+      applySidebarState('is-available', 'Update', 'Local server update available', installedBundleTag ? 'A newer local server bundle is available for this install.' : 'This install needs one refresh so MAYA AISafe Plugin can track the local server bundle version precisely.');
       showNotice(
         'Server update',
         'Refresh the local server bundle',
@@ -1274,12 +1274,12 @@ class SettingsManager {
     if (extensionIsCurrent && bundleUnknown) {
       setUpdateBlockVisible(true);
       releaseText.textContent = `Extension is up to date: v${currentVersion}`;
-      releaseSubtext.textContent = `Latest GitHub release is ${latestTag}, published ${published}. This install still needs one local server refresh so AI-Safe Plugin can verify and stamp the backend bundle version on this machine.`;
+      releaseSubtext.textContent = `Latest GitHub release is ${latestTag}, published ${published}. This install still needs one local server refresh so MAYA AISafe Plugin can verify and stamp the backend bundle version on this machine.`;
       applySidebarState('is-available', 'Refresh', 'Backend version needs verification', 'The extension is current, but this local server install is missing release metadata until you refresh it once.');
       showNotice(
         'Server metadata',
         'Refresh the local server bundle once',
-        `The extension is already on ${latestTag}. Run the refresh command below once so AI-Safe Plugin can stamp and verify the backend bundle version for this install.`
+        `The extension is already on ${latestTag}. Run the refresh command below once so MAYA AISafe Plugin can stamp and verify the backend bundle version for this install.`
       );
       return;
     }
@@ -1296,14 +1296,14 @@ class SettingsManager {
       setUpdateBlockVisible(false);
       releaseText.textContent = `Extension is up to date: v${currentVersion}`;
       releaseSubtext.textContent = `Latest GitHub release is ${latestTag}, published ${published}. Refresh the local server bundle below if you want to stamp this install with the latest release metadata or repair it in place.`;
-      applySidebarState('is-current', 'Up to date', 'Everything is up to date', 'AI-Safe Plugin is on the latest published extension release.');
+      applySidebarState('is-current', 'Up to date', 'Everything is up to date', 'MAYA AISafe Plugin is on the latest published extension release.');
       return;
     }
 
     setUpdateBlockVisible(true);
     releaseText.textContent = `Latest GitHub release channel: ${latestTag}`;
     releaseSubtext.textContent = `Published ${published}. This tag does not map cleanly to the installed extension version, so treat the command below as a local server refresh command, not as proof that the extension itself is outdated.`;
-    applySidebarState('is-loading', 'Preview', 'Preview release detected', 'You are on a preview or fork release channel, so AI-Safe Plugin is keeping the manual refresh command available.');
+    applySidebarState('is-loading', 'Preview', 'Preview release detected', 'You are on a preview or fork release channel, so MAYA AISafe Plugin is keeping the manual refresh command available.');
   }
 
   getDefaultServerMeta() {
@@ -1361,9 +1361,9 @@ class SettingsManager {
       if (this.serverState.portConflict) {
         portStatus.textContent = 'Occupied by another local process';
       } else if (this.serverState.running && this.serverState.healthy) {
-        portStatus.textContent = `AI-Safe Plugin server online${this.serverState.pid ? ` (PID ${this.serverState.pid})` : ''}`;
+        portStatus.textContent = `MAYA AISafe Plugin server online${this.serverState.pid ? ` (PID ${this.serverState.pid})` : ''}`;
       } else if (this.serverState.running) {
-        portStatus.textContent = 'AI-Safe Plugin server starting';
+        portStatus.textContent = 'MAYA AISafe Plugin server starting';
       } else {
         portStatus.textContent = 'Available';
       }
@@ -2231,7 +2231,7 @@ class SettingsManager {
   }
 
   /**
-   * Full wipe of all AI-Safe Plugin browser-local data (H6). Uses a two-click confirm — the
+   * Full wipe of all MAYA AISafe Plugin browser-local data (H6). Uses a two-click confirm — the
    * first click arms the button for 5 s, the second performs the wipe — instead of
    * window.confirm. After clearing, defaults are re-seeded; content scripts react to
    * the storage change via their chrome.storage.onChanged listener.
@@ -2254,13 +2254,13 @@ class SettingsManager {
 
     if (this._deleteDataTimer) clearTimeout(this._deleteDataTimer);
     this._deleteDataArmed = false;
-    btn.textContent = btn.dataset.originalLabel || 'Delete all AI-Safe Plugin data';
+    btn.textContent = btn.dataset.originalLabel || 'Delete all MAYA AISafe Plugin data';
 
     await chrome.storage.local.clear();
     await chrome.storage.local.set(DEFAULT_SETTINGS);
     this.settings = { ...DEFAULT_SETTINGS };
     this.render();
-    this.setMessage('All AI-Safe Plugin data deleted. Settings restored to defaults.');
+    this.setMessage('All MAYA AISafe Plugin data deleted. Settings restored to defaults.');
   }
 
   setMessage(text, isError = false) {

@@ -14,6 +14,7 @@
     "status-autostart-linux": "systemctl --user --no-pager status ai-safe-plugin-gliner-server.service",
     "build": "echo 'No build step — load extension/ folder directly in Chrome'",
     "build:zip": "bash scripts/build_crx.sh",
+    "build:zip:store": "bash scripts/build_crx.sh --store",
     "build:backend-bundle": "uv run --no-sync python scripts/build_backend_bundle.py",
     "build:model-bundle": "uv run --no-sync python scripts/build_model_bundle.py",
     "build:windows-installer": "uv run --no-sync python scripts/build_windows_installer.py",

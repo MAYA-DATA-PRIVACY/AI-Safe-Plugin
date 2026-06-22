@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Rebranded the product to **MAYA AISafe Plugin** across the toolbar popup, options page, onboarding, playground, README, and a new categorized features doc (`docs/FEATURES.md`). Internal identifiers, native-host names, and the repository slug are unchanged.
+- Made the extension Chrome Web Store-ready: `scripts/build_crx.sh --store` (and `npm run build:zip:store`) produce a key-free upload package, and each GitHub release now also publishes an `…-webstore.zip` asset. The unpacked/GitHub zip keeps its pinned `key` for a stable extension ID.
+- Installers now auto-detect MAYA AISafe Plugin builds already present in a local Chromium browser (e.g. the Web Store build, whose ID Google assigns) and register those IDs for native messaging alongside the pinned default, so the Web Store and GitHub/unpacked installs both work.
+- Replaced the README logo with a single transparent-background mark so it stays visible in both light and dark themes.
 - Renamed the extension to **AI-Safe Plugin**, dropping the "AI Privacy Guard" / "Privacy Guard" suffix from the manifest, options page, and privacy policy.
 - Fixed Windows native-messaging setup by pinning AI-Safe Plugin's extension ID (`aggkonihfabdcbgomkfecjhdolddfabe`) and defaulting installers/native-host registration to that ID when no explicit custom ID is supplied. Existing unpacked installs must reload the extension once and rerun setup once so Chrome and the native-host manifest agree.
 - Rebranded the Windows local-server install path and scheduled task to `AI-Safe-Plugin` / `AISafePluginGLiNER2`, while keeping legacy cleanup for older Veil/PrivacyShield task names.

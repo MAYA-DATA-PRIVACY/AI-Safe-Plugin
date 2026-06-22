@@ -150,7 +150,7 @@ const MDP_SEED_PREFIX = 'ai_safe_plugin_';
 const DEFAULT_LOCAL_SERVER_URL = 'http://127.0.0.1:8765';
 const LOCAL_SERVER_URL_OVERRIDE_KEY = 'aiSafePluginLocalServerUrlOverride';
 
-// Maps AI-Safe Plugin detection labels → MayaData anonymisation engine utility parameters.
+// Maps MAYA AISafe Plugin detection labels → MayaData anonymisation engine utility parameters.
 // Available MayaData UtilityParameter enum values:
 //   IBAN, MATERIAL, CONSISTENT_ID, NUMBER, NAME, CLEAR, PHONE, URL, ADDRESS,
 //   PASSPORT_NUMBER, ACCOUNT_NUMBER, EMAIL, BANK_DETAILS, ORG_NAME, SSN,
@@ -316,7 +316,7 @@ class AiSafePluginAnonymizer {
         .filter((label) => label && !MDP_LABEL_CONFIG[label])
     ));
     if (unsupportedLabels.length > 0) {
-      console.debug('[AI-Safe Plugin] Anonymizer skipped unsupported labels:', unsupportedLabels.join(', '));
+      console.debug('[MAYA AISafe Plugin] Anonymizer skipped unsupported labels:', unsupportedLabels.join(', '));
     }
     if (supportedDetections.length === 0) {
       return detections;
@@ -324,7 +324,7 @@ class AiSafePluginAnonymizer {
 
     const credentials = await this.getCredentials();
     if (!credentials.apiKey) {
-      console.warn('[AI-Safe Plugin] Anonymizer skipped: no API key configured. Set one in the extension popup.');
+      console.warn('[MAYA AISafe Plugin] Anonymizer skipped: no API key configured. Set one in the extension popup.');
       return detections;
     }
 
@@ -338,7 +338,7 @@ class AiSafePluginAnonymizer {
       const replacements = this.extractReplacementMap(payload, apiResponse);
       return detections.map((item) => this.applyReplacement(item, replacements));
     } catch (error) {
-      console.warn('[AI-Safe Plugin] Anonymization bulk request failed, retrying per label:', error?.message || String(error));
+      console.warn('[MAYA AISafe Plugin] Anonymization bulk request failed, retrying per label:', error?.message || String(error));
       const replacements = await this.callApiBestEffort(credentials.apiKey, payload);
       if (replacements.size === 0) {
         return detections;
@@ -453,7 +453,7 @@ class AiSafePluginAnonymizer {
         replacementMap.forEach((value, key) => merged.set(key, value));
       } catch (error) {
         const label = String(entry?.utilityParameter || entry?.column_name || 'unknown');
-        console.warn(`[AI-Safe Plugin] Anonymizer skipped label ${label}:`, error?.message || String(error));
+        console.warn(`[MAYA AISafe Plugin] Anonymizer skipped label ${label}:`, error?.message || String(error));
       }
     }
     return merged;
