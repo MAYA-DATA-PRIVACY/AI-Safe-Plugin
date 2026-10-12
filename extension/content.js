@@ -1959,8 +1959,13 @@ class AiSafePluginContentController {
 
     if (!sourceText || sourceText.trim().length < 3) {
       const prevState = this.redactions.get(element);
-      if (!prevState?.items?.some((item) => item.redacted)) {
+      const isFullyEmpty = !sourceText || sourceText.trim().length === 0;
+      if (isFullyEmpty || !prevState?.items?.some((item) => item.redacted)) {
         this.clearElementState(element);
+        if (isFullyEmpty) {
+          this.dismissedDetections.delete(element);
+          this.aliasLedgers.delete(element);
+        }
       }
       this.lastAnalyzedSnapshot.set(element, snapshotKey);
       return;
